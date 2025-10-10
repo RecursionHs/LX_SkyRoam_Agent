@@ -6,6 +6,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from loguru import logger
 import random
+import json
+from app.tools.openai_client import openai_client
 
 
 class PlanGenerator:
@@ -26,6 +28,28 @@ class PlanGenerator:
         try:
             logger.info("开始生成旅行方案")
             
+            # 首先尝试使用LLM生成方案
+            try:
+                # 检查OpenAI配置
+                if not openai_client.api_key:
+                    logger.warning("OpenAI API密钥未配置，使用传统方法")
+                    raise Exception("OpenAI API密钥未配置")
+                
+                # 设置超时
+                import asyncio
+                llm_plans = await asyncio.wait_for(
+                    self._generate_plans_with_llm(processed_data, plan, preferences),
+                    timeout=300.0  # 300秒超时
+                )
+                if llm_plans:
+                    logger.info(f"使用LLM生成了 {len(llm_plans)} 个旅行方案")
+                    return llm_plans
+            except asyncio.TimeoutError:
+                logger.warning("LLM调用超时，使用传统方法")
+            except Exception as e:
+                logger.warning(f"LLM生成方案失败，使用传统方法: {e}")
+            
+            # 降级到传统方法
             plans = []
             
             # 生成不同风格的方案
@@ -50,6 +74,252 @@ class PlanGenerator:
         except Exception as e:
             logger.error(f"生成旅行方案失败: {e}")
             return []
+    
+    async def _generate_plans_with_llm(
+        self,
+        processed_data: Dict[str, Any],
+        plan: Any,
+        preferences: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """使用LLM生成旅行方案"""
+        try:
+            # 构建系统提示
+            system_prompt = """你是一个专业的旅行规划师，擅长为游客制定详细的旅行计划。
+请根据提供的数据和用户需求，生成3-5个不同风格的旅行方案。
+
+每个方案必须严格按照以下JSON格式返回：
+
+{
+  "plans": [
+    {
+      "id": "plan_1",
+      "type": "经济实惠型",
+      "title": "经济实惠的{目的地}之旅",
+      "description": "详细的方案描述",
+      "flight": {
+        "airline": "航空公司",
+        "departure_time": "出发时间",
+        "arrival_time": "到达时间",
+        "price": 价格,
+        "rating": 评分
+      },
+      "hotel": {
+        "name": "酒店名称",
+        "address": "酒店地址",
+        "price_per_night": 每晚价格,
+        "rating": 评分,
+        "amenities": ["设施1", "设施2"]
+      },
+      "daily_itineraries": [
+        {
+          "day": 1,
+          "date": "日期",
+          "attractions": [
+            {
+              "name": "景点名称",
+              "category": "景点类型",
+              "description": "景点描述",
+              "price": 门票价格,
+              "rating": 评分,
+              "visit_time": "建议游览时间"
+            }
+          ],
+          "meals": [
+            {
+              "type": "早餐/午餐/晚餐",
+              "time": "用餐时间",
+              "suggestion": "餐厅建议",
+              "estimated_cost": 预估费用
+            }
+          ],
+          "transportation": "交通方式",
+          "estimated_cost": 当日总费用
+        }
+      ],
+      "restaurants": [
+        {
+          "name": "餐厅名称",
+          "cuisine": "菜系",
+          "price_range": "价格区间",
+          "rating": 评分,
+          "address": "地址"
+        }
+      ],
+      "transportation": [
+        {
+          "type": "交通方式",
+          "description": "描述",
+          "cost": 费用
+        }
+      ],
+      "total_cost": {
+        "flight": 航班费用,
+        "hotel": 酒店费用,
+        "attractions": 景点费用,
+        "meals": 餐饮费用,
+        "transportation": 交通费用,
+        "total": 总费用
+      },
+      "duration_days": 天数,
+      "generated_at": "生成时间"
+    }
+  ]
+}
+
+请确保返回的JSON格式完全符合上述结构，不要添加任何额外的文本或说明。"""
+            
+            # 构建用户提示
+            user_prompt = f"""
+请为以下旅行需求制定多个方案：
+
+目的地：{plan.destination}
+旅行天数：{plan.duration_days}天
+出发日期：{plan.start_date}
+返回日期：{plan.end_date}
+预算：{plan.budget}元
+用户偏好：{preferences or '无特殊偏好'}
+特殊要求：{plan.requirements or '无特殊要求'}
+
+可用数据：
+- 航班信息：{len(processed_data.get('flights', []))}个选项
+- 酒店信息：{len(processed_data.get('hotels', []))}个选项
+- 景点信息：{len(processed_data.get('attractions', []))}个选项
+- 餐厅信息：{len(processed_data.get('restaurants', []))}个选项
+- 交通信息：{len(processed_data.get('transportation', []))}个选项
+- 天气信息：{processed_data.get('weather', {})}
+
+请生成3-5个不同风格的旅行方案，每个方案都要实用且详细。
+
+重要提醒：
+1. 必须严格按照指定的JSON格式返回
+2. 每个方案都要包含完整的daily_itineraries数组
+3. 价格信息要合理且符合预算
+4. 景点安排要考虑地理位置和游览时间
+5. 餐饮建议要符合当地特色
+6. 交通方式要实用且经济
+
+请直接返回JSON格式的结果，不要添加任何其他文本。
+"""
+            
+            # 调用LLM
+            response = await openai_client.generate_text(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=4096,
+                temperature=0.7
+            )
+            
+            # 尝试解析JSON响应
+            try:
+                # 清理响应文本，移除可能的markdown标记
+                cleaned_response = self._clean_llm_response(response)
+                
+                result = json.loads(cleaned_response)
+                if isinstance(result, dict) and 'plans' in result:
+                    plans = result['plans']
+                elif isinstance(result, list):
+                    plans = result
+                else:
+                    logger.warning("LLM返回的JSON格式不符合预期")
+                    return []
+                
+                # 验证和清理方案数据
+                validated_plans = []
+                for i, plan_data in enumerate(plans):
+                    if self._validate_plan_data(plan_data):
+                        plan_data['id'] = f"llm_plan_{i}"
+                        plan_data['generated_at'] = datetime.utcnow().isoformat()
+                        validated_plans.append(plan_data)
+                    else:
+                        logger.warning(f"方案 {i} 数据验证失败")
+                
+                if not validated_plans:
+                    logger.error("所有LLM生成的方案都未通过验证")
+                    return []
+                
+                return validated_plans
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"解析LLM返回的JSON失败: {e}")
+                logger.debug(f"LLM原始响应: {response}")
+                
+                # 尝试从响应中提取JSON
+                extracted_json = self._extract_json_from_response(response)
+                if extracted_json:
+                    try:
+                        result = json.loads(extracted_json)
+                        if isinstance(result, dict) and 'plans' in result:
+                            plans = result['plans']
+                        elif isinstance(result, list):
+                            plans = result
+                        else:
+                            return []
+                        
+                        validated_plans = []
+                        for i, plan_data in enumerate(plans):
+                            if self._validate_plan_data(plan_data):
+                                plan_data['id'] = f"llm_plan_{i}"
+                                plan_data['generated_at'] = datetime.utcnow().isoformat()
+                                validated_plans.append(plan_data)
+                        
+                        return validated_plans
+                    except json.JSONDecodeError:
+                        pass
+                
+                return []
+                
+        except Exception as e:
+            logger.error(f"LLM生成方案失败: {e}")
+            raise
+    
+    def _validate_plan_data(self, plan_data: Dict[str, Any]) -> bool:
+        """验证方案数据"""
+        required_fields = ['title', 'description']
+        return all(field in plan_data for field in required_fields)
+    
+    def _clean_llm_response(self, response: str) -> str:
+        """清理LLM响应，移除markdown标记等"""
+        import re
+        
+        # 移除markdown代码块标记
+        cleaned = re.sub(r'```json\s*', '', response)
+        cleaned = re.sub(r'```\s*$', '', cleaned)
+        cleaned = re.sub(r'```\s*', '', cleaned)  # 移除单独的```
+        
+        # 移除前后的空白字符
+        cleaned = cleaned.strip()
+        
+        return cleaned
+    
+    def _extract_json_from_response(self, response: str) -> Optional[str]:
+        """从响应中提取JSON"""
+        import re
+        
+        # 首先尝试清理markdown格式
+        cleaned = self._clean_llm_response(response)
+        
+        # 尝试匹配JSON对象（包含plans字段）
+        json_pattern = r'\{[^{}]*"plans"[^{}]*\{.*?\}.*?\}'
+        match = re.search(json_pattern, cleaned, re.DOTALL)
+        
+        if match:
+            return match.group(0)
+        
+        # 尝试匹配简单的JSON对象
+        simple_json_pattern = r'\{.*?\}'
+        match = re.search(simple_json_pattern, cleaned, re.DOTALL)
+        
+        if match:
+            return match.group(0)
+        
+        # 尝试匹配JSON数组
+        array_pattern = r'\[.*?\]'
+        match = re.search(array_pattern, cleaned, re.DOTALL)
+        
+        if match:
+            return match.group(0)
+        
+        return None
     
     async def _generate_single_plan(
         self,

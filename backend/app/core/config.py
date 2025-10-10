@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4-turbo-preview"
     OPENAI_MAX_TOKENS: int = 4000
     OPENAI_TEMPERATURE: float = 0.7
-    OPENAI_TIMEOUT: int = 60  # API超时时间（秒）
+    OPENAI_TIMEOUT: int = 300  # API超时时间（秒）
     OPENAI_MAX_RETRIES: int = 3  # 最大重试次数
     
     # 第三方API配置

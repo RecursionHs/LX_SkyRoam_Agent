@@ -2,9 +2,9 @@
 旅行计划服务
 """
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func
 from sqlalchemy.orm import selectinload
 
 from app.models.travel_plan import TravelPlan, TravelPlanItem
@@ -46,6 +46,41 @@ class TravelPlanService:
         
         result = await self.db.execute(query)
         return result.scalars().all()
+    
+    async def get_travel_plans_with_total(
+        self, 
+        skip: int = 0, 
+        limit: int = 100,
+        user_id: Optional[int] = None,
+        status: Optional[str] = None
+    ) -> Tuple[List[TravelPlan], int]:
+        """获取旅行计划列表和总数"""
+        # 构建查询条件
+        conditions = []
+        if user_id:
+            conditions.append(TravelPlan.user_id == user_id)
+        if status:
+            conditions.append(TravelPlan.status == status)
+        
+        # 获取总数
+        count_query = select(func.count(TravelPlan.id))
+        if conditions:
+            count_query = count_query.where(*conditions)
+        
+        count_result = await self.db.execute(count_query)
+        total = count_result.scalar()
+        
+        # 获取数据
+        query = select(TravelPlan).options(selectinload(TravelPlan.items))
+        if conditions:
+            query = query.where(*conditions)
+        
+        query = query.offset(skip).limit(limit).order_by(TravelPlan.created_at.desc())
+        
+        result = await self.db.execute(query)
+        plans = result.scalars().all()
+        
+        return plans, total
     
     async def get_travel_plan(self, plan_id: int) -> Optional[TravelPlan]:
         """获取单个旅行计划"""

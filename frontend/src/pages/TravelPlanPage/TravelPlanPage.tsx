@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Card, 
   Button, 
@@ -50,11 +50,12 @@ const TravelPlanPage: React.FC = () => {
   const [generationStatus, setGenerationStatus] = useState<string>('idle');
   const [progress, setProgress] = useState(0);
   const [autoSubmitting, setAutoSubmitting] = useState(false);
+  const hasAutoSubmitted = useRef(false);
 
   // 接收来自首页的表单数据并自动提交
   useEffect(() => {
     const formData = location.state?.formData;
-    if (formData) {
+    if (formData && !hasAutoSubmitted.current) {
       console.log('接收到首页表单数据，自动提交:', formData);
       
       // 处理日期数据：将字符串转换为dayjs对象
@@ -69,13 +70,15 @@ const TravelPlanPage: React.FC = () => {
       // 预填表单
       form.setFieldsValue(processedData);
       
-      // 自动提交表单
+      // 标记已自动提交，防止重复提交
+      hasAutoSubmitted.current = true;
       setAutoSubmitting(true);
+      
       setTimeout(() => {
         form.submit();
       }, 100); // 稍微延迟确保表单已渲染
     }
-  }, [location.state, form]);
+  }, [location.state]); // 移除form依赖，避免重复提交
 
   const steps = [
     {
@@ -181,18 +184,28 @@ const TravelPlanPage: React.FC = () => {
   };
 
   const pollGenerationStatus = async (planId: number) => {
+    let pollCount = 0;
+    const maxPolls = 150; // 最大轮询次数：150次 * 6秒 = 15分钟
     const pollInterval = setInterval(async () => {
       try {
+        pollCount++;
+        console.log(`轮询状态 ${pollCount}/${maxPolls}: 计划 ${planId}`);
+        
         const response = await fetch(buildApiUrl(API_ENDPOINTS.TRAVEL_PLAN_STATUS(planId)));
         const status = await response.json();
         
-        setProgress(Math.min(progress + 10, 90));
+        // 动态更新进度，基于轮询次数
+        const newProgress = Math.min(10 + (pollCount * 0.6), 90);
+        setProgress(newProgress);
+        
+        console.log(`状态: ${status.status}, 进度: ${newProgress}%`);
         
         if (status.status === 'completed') {
           clearInterval(pollInterval);
           setCurrentStep(3);
           setGenerationStatus('completed');
           setProgress(100);
+          console.log('方案生成完成！');
           
           // 跳转到方案详情页
           setTimeout(() => {
@@ -201,19 +214,30 @@ const TravelPlanPage: React.FC = () => {
         } else if (status.status === 'failed') {
           clearInterval(pollInterval);
           setGenerationStatus('failed');
+          console.log('方案生成失败');
+        } else if (pollCount >= maxPolls) {
+          clearInterval(pollInterval);
+          setGenerationStatus('timeout');
+          console.log('轮询超时，已达到最大次数');
         }
       } catch (error) {
         console.error('查询状态失败:', error);
+        // 网络错误不停止轮询，继续尝试
+        if (pollCount >= maxPolls) {
+          clearInterval(pollInterval);
+          setGenerationStatus('timeout');
+        }
       }
-    }, 2000);
+    }, 6000);
 
-    // 30秒后超时
+    // 备用超时机制：10分钟后强制停止
     setTimeout(() => {
       clearInterval(pollInterval);
       if (generationStatus === 'generating') {
         setGenerationStatus('timeout');
+        console.log('轮询超时，60分钟强制停止');
       }
-    }, 30000);
+    }, 3600000); // 60分钟
   };
 
   const getStatusAlert = () => {
@@ -251,11 +275,19 @@ const TravelPlanPage: React.FC = () => {
       case 'timeout':
         return (
           <Alert
-            message="生成超时"
-            description="方案生成时间较长，请稍后查看结果或重新生成。"
+            message="生成时间较长"
+            description="方案生成时间较长，您可以稍后查看历史记录页面，或重新生成。"
             type="warning"
             showIcon
             style={{ marginBottom: 24 }}
+            action={
+              <Button 
+                size="small" 
+                onClick={() => navigate('/history')}
+              >
+                查看历史记录
+              </Button>
+            }
           />
         );
       default:

@@ -16,6 +16,7 @@ export const API_ENDPOINTS = {
   TRAVEL_PLAN_DETAIL: (id: number) => `/travel-plans/${id}`,
   TRAVEL_PLAN_GENERATE: (id: number) => `/travel-plans/${id}/generate`,
   TRAVEL_PLAN_STATUS: (id: number) => `/travel-plans/${id}/status`,
+  TRAVEL_PLAN_SELECT: (id: number) => `/travel-plans/${id}/select-plan`,
   
   // 目的地
   DESTINATIONS: '/destinations',

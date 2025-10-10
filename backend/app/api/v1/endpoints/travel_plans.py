@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from datetime import datetime
 
-from app.core.database import get_async_db
+from app.core.database import get_async_db, AsyncSessionLocal
 from app.schemas.travel_plan import (
     TravelPlanCreate, 
     TravelPlanUpdate, 
@@ -16,8 +16,42 @@ from app.schemas.travel_plan import (
 )
 from app.services.travel_plan_service import TravelPlanService
 from app.services.agent_service import AgentService
+from loguru import logger
 
 router = APIRouter()
+
+
+async def generate_travel_plans_task(
+    plan_id: int,
+    preferences: Optional[dict] = None,
+    requirements: Optional[dict] = None
+):
+    """后台任务：生成旅行方案"""
+    async with AsyncSessionLocal() as db:
+        try:
+            logger.info(f"开始后台任务：生成旅行方案 {plan_id}")
+            agent_service = AgentService(db)
+            success = await agent_service.generate_travel_plans(
+                plan_id, preferences, requirements
+            )
+            if success:
+                logger.info(f"后台任务完成：旅行方案 {plan_id} 生成成功")
+            else:
+                logger.error(f"后台任务失败：旅行方案 {plan_id} 生成失败")
+        except Exception as e:
+            logger.error(f"后台任务异常：{e}")
+            # 确保状态更新为失败
+            try:
+                from sqlalchemy import update
+                from app.models.travel_plan import TravelPlan
+                await db.execute(
+                    update(TravelPlan)
+                    .where(TravelPlan.id == plan_id)
+                    .values(status="failed")
+                )
+                await db.commit()
+            except Exception as update_error:
+                logger.error(f"更新状态失败: {update_error}")
 
 
 @router.post("/", response_model=TravelPlanResponse)
@@ -30,7 +64,7 @@ async def create_travel_plan(
     return await service.create_travel_plan(plan_data)
 
 
-@router.get("/", response_model=List[TravelPlanResponse])
+@router.get("/")
 async def get_travel_plans(
     skip: int = 0,
     limit: int = 100,
@@ -40,12 +74,18 @@ async def get_travel_plans(
 ):
     """获取旅行计划列表"""
     service = TravelPlanService(db)
-    return await service.get_travel_plans(
+    plans, total = await service.get_travel_plans_with_total(
         skip=skip, 
         limit=limit, 
         user_id=user_id, 
         status=status
     )
+    return {
+        "plans": plans,
+        "total": total,
+        "skip": skip,
+        "limit": limit
+    }
 
 
 @router.get("/{plan_id}", response_model=TravelPlanResponse)
@@ -106,7 +146,7 @@ async def generate_travel_plans(
     
     # 启动后台任务生成方案
     background_tasks.add_task(
-        agent_service.generate_travel_plans,
+        generate_travel_plans_task,
         plan_id,
         request.preferences,
         request.requirements
@@ -141,11 +181,17 @@ async def get_generation_status(
 @router.post("/{plan_id}/select-plan")
 async def select_travel_plan(
     plan_id: int,
-    plan_index: int,
+    request_data: dict,
     db: AsyncSession = Depends(get_async_db)
 ):
     """选择最终旅行方案"""
     service = TravelPlanService(db)
+    
+    # 从请求体中获取plan_index
+    plan_index = request_data.get('plan_index')
+    if plan_index is None:
+        raise HTTPException(status_code=400, detail="缺少plan_index参数")
+    
     success = await service.select_plan(plan_id, plan_index)
     if not success:
         raise HTTPException(status_code=400, detail="选择方案失败")

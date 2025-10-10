@@ -60,8 +60,8 @@ const HistoryPage: React.FC = () => {
       }
       
       const data = await response.json();
-      setPlans(data);
-      setTotal(data.length); // 这里应该从API返回总数
+      setPlans(data.plans || data); // 兼容新旧格式
+      setTotal(data.total || data.length); // 使用API返回的总数
     } catch (error) {
       console.error('获取历史记录失败:', error);
     } finally {
@@ -106,6 +106,17 @@ const HistoryPage: React.FC = () => {
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('zh-CN');
+  };
+
+  const formatDateTime = (dateString: string) => {
+    return new Date(dateString).toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
   };
 
   if (loading) {
@@ -176,9 +187,14 @@ const HistoryPage: React.FC = () => {
                   ]}
                 >
                   <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                    <Title level={4} style={{ margin: 0 }}>
-                      {plan.title}
-                    </Title>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <Title level={4} style={{ margin: 0, flex: 1 }}>
+                        {plan.title}
+                      </Title>
+                      <Tag color="purple" style={{ marginLeft: '8px' }}>
+                        ID: {plan.id}
+                      </Tag>
+                    </div>
                     
                     <Space>
                       <Tag color="blue" icon={<EnvironmentOutlined />}>
@@ -206,7 +222,7 @@ const HistoryPage: React.FC = () => {
                     
                     <div>
                       <Text type="secondary" style={{ fontSize: '12px' }}>
-                        创建时间: {formatDate(plan.created_at)}
+                        创建时间: {formatDateTime(plan.created_at)}
                       </Text>
                     </div>
                   </Space>

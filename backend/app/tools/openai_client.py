@@ -71,6 +71,8 @@ class OpenAIClient:
                 temperature=temperature or self.temperature,
                 **kwargs
             )
+
+            logger.debug(f"OpenAI API响应: {response.choices[0].message.content}")
             
             return response.choices[0].message.content
             

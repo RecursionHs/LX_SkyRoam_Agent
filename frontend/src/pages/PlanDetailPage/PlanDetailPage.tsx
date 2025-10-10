@@ -74,7 +74,7 @@ const PlanDetailPage: React.FC = () => {
 
   const handleSelectPlan = async (planIndex: number) => {
     try {
-      const response = await fetch(buildApiUrl(`/travel-plans/${id}/select-plan`), {
+      const response = await fetch(buildApiUrl(API_ENDPOINTS.TRAVEL_PLAN_SELECT(Number(id))), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -85,6 +85,10 @@ const PlanDetailPage: React.FC = () => {
       if (response.ok) {
         setSelectedPlanIndex(planIndex);
         fetchPlanDetail(); // 刷新数据
+        console.log(`方案 ${planIndex} 选择成功`);
+      } else {
+        const errorData = await response.json();
+        console.error('选择方案失败:', errorData);
       }
     } catch (error) {
       console.error('选择方案失败:', error);
