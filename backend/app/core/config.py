@@ -47,32 +47,41 @@ class Settings(BaseSettings):
     HOTEL_API_KEY: str = ""    # Booking.com
     MAP_API_KEY: str = ""      # Google Maps
     
+    # MCP服务配置
+    BAIDU_MCP_ENDPOINT: str = "http://localhost:3000"  # 百度地图MCP服务（FastMCP默认端口）
+    AMAP_MCP_ENDPOINT: str = "http://localhost:3002"  # 高德地图MCP服务
+    MCP_TIMEOUT: int = 300  # MCP服务超时时间（秒）
+
+    # MCP服务API密钥（通过环境变量传递给MCP服务）
+    BAIDU_MAPS_API_KEY: str = "q3kAmBy5yuLNuZwbl9YG1y3mU8lqFKQx"  # 百度地图API密钥
+    AMAP_API_KEY: str = ""       # 高德地图API密钥
+
     # 爬虫配置
     SCRAPY_USER_AGENT: str = "LX-SkyRoam-Agent/1.0"
     SCRAPY_DELAY: float = 1.0
     SCRAPY_CONCURRENT_REQUESTS: int = 16
-    
+
     # 安全配置
     SECRET_KEY: str = "your-secret-key-here"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    
+
     # 文件存储
     UPLOAD_DIR: str = "uploads"
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
-    
+
     # 日志配置
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/app.log"
-    
+
     # 缓存配置
     CACHE_TTL: int = 3600  # 1小时
     CACHE_MAX_SIZE: int = 1000
-    
+
     # 任务配置
     TASK_TIMEOUT: int = 300  # 5分钟
     MAX_CONCURRENT_TASKS: int = 10
-    
+
     # 数据源配置
     DATA_SOURCES: List[str] = [
         "flights",
@@ -82,7 +91,7 @@ class Settings(BaseSettings):
         "restaurants",
         "transportation"
     ]
-    
+
     # 评分权重配置
     SCORING_WEIGHTS: dict = {
         "price": 0.3,
@@ -91,10 +100,11 @@ class Settings(BaseSettings):
         "safety": 0.15,
         "popularity": 0.1
     }
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+
+class Config:
+    env_file = ".env"
+    env_file_encoding = "utf-8"
+    case_sensitive = True
 
 
 # 创建全局配置实例

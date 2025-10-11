@@ -180,23 +180,36 @@ class PlanGenerator:
 用户偏好：{preferences or '无特殊偏好'}
 特殊要求：{plan.requirements or '无特殊要求'}
 
-可用数据：
-- 航班信息：{len(processed_data.get('flights', []))}个选项
-- 酒店信息：{len(processed_data.get('hotels', []))}个选项
-- 景点信息：{len(processed_data.get('attractions', []))}个选项
-- 餐厅信息：{len(processed_data.get('restaurants', []))}个选项
-- 交通信息：{len(processed_data.get('transportation', []))}个选项
-- 天气信息：{processed_data.get('weather', {})}
+真实可用数据：
 
-请生成3-5个不同风格的旅行方案，每个方案都要实用且详细。
+航班信息：
+{self._format_data_for_llm(processed_data.get('flights', []), 'flight')}
+
+酒店信息：
+{self._format_data_for_llm(processed_data.get('hotels', []), 'hotel')}
+
+景点信息：
+{self._format_data_for_llm(processed_data.get('attractions', []), 'attraction')}
+
+餐厅信息：
+{self._format_data_for_llm(processed_data.get('restaurants', []), 'restaurant')}
+
+交通信息：
+{self._format_data_for_llm(processed_data.get('transportation', []), 'transportation')}
+
+天气信息：
+{processed_data.get('weather', {})}
+
+请基于以上真实数据生成3-5个不同风格的旅行方案，每个方案都要实用且详细。
 
 重要提醒：
 1. 必须严格按照指定的JSON格式返回
-2. 每个方案都要包含完整的daily_itineraries数组
-3. 价格信息要合理且符合预算
-4. 景点安排要考虑地理位置和游览时间
-5. 餐饮建议要符合当地特色
-6. 交通方式要实用且经济
+2. 必须使用提供的真实数据，不要虚构信息
+3. 每个方案都要包含完整的daily_itineraries数组
+4. 价格信息要基于真实数据，符合预算
+5. 景点安排要考虑地理位置和游览时间
+6. 餐饮建议要基于真实餐厅信息
+7. 交通方式要基于真实交通数据
 
 请直接返回JSON格式的结果，不要添加任何其他文本。
 """
@@ -320,6 +333,61 @@ class PlanGenerator:
             return match.group(0)
         
         return None
+    
+    def _format_data_for_llm(self, data: List[Dict[str, Any]], data_type: str) -> str:
+        """格式化数据供LLM使用"""
+        if not data:
+            return "暂无数据"
+        
+        formatted_items = []
+        for i, item in enumerate(data[:10]):  # 限制数量，避免prompt过长
+            if data_type == 'flight':
+                formatted_items.append(f"""
+  {i+1}. 航空公司: {item.get('airline', 'N/A')}
+     出发时间: {item.get('departure_time', 'N/A')}
+     到达时间: {item.get('arrival_time', 'N/A')}
+     价格: {item.get('price', 'N/A')}元
+     评分: {item.get('rating', 'N/A')}
+     出发地: {item.get('departure_city', 'N/A')}
+     目的地: {item.get('arrival_city', 'N/A')}""")
+            
+            elif data_type == 'hotel':
+                formatted_items.append(f"""
+  {i+1}. 酒店名称: {item.get('name', 'N/A')}
+     地址: {item.get('address', 'N/A')}
+     每晚价格: {item.get('price_per_night', 'N/A')}元
+     评分: {item.get('rating', 'N/A')}
+     设施: {', '.join(item.get('amenities', []))}
+     星级: {item.get('star_rating', 'N/A')}""")
+            
+            elif data_type == 'attraction':
+                formatted_items.append(f"""
+  {i+1}. 景点名称: {item.get('name', 'N/A')}
+     类型: {item.get('category', 'N/A')}
+     描述: {item.get('description', 'N/A')}
+     门票价格: {item.get('price', 'N/A')}元
+     评分: {item.get('rating', 'N/A')}
+     地址: {item.get('address', 'N/A')}
+     开放时间: {item.get('opening_hours', 'N/A')}""")
+            
+            elif data_type == 'restaurant':
+                formatted_items.append(f"""
+  {i+1}. 餐厅名称: {item.get('name', 'N/A')}
+     菜系: {item.get('cuisine', 'N/A')}
+     价格区间: {item.get('price_range', 'N/A')}
+     评分: {item.get('rating', 'N/A')}
+     地址: {item.get('address', 'N/A')}
+     特色菜: {', '.join(item.get('specialties', []))}""")
+            
+            elif data_type == 'transportation':
+                formatted_items.append(f"""
+  {i+1}. 交通方式: {item.get('type', 'N/A')}
+     描述: {item.get('description', 'N/A')}
+     费用: {item.get('cost', 'N/A')}元
+     运营时间: {item.get('operating_hours', 'N/A')}
+     路线: {item.get('route', 'N/A')}""")
+        
+        return '\n'.join(formatted_items) if formatted_items else "暂无数据"
     
     async def _generate_single_plan(
         self,
