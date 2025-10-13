@@ -11,6 +11,7 @@ class TravelPlanBase(BaseModel):
     """旅行计划基础模式"""
     title: str = Field(..., description="计划标题")
     description: Optional[str] = Field(None, description="计划描述")
+    departure: str = Field(..., description="出发地")
     destination: str = Field(..., description="目的地")
     start_date: datetime = Field(..., description="开始日期")
     end_date: datetime = Field(..., description="结束日期")
@@ -38,6 +39,7 @@ class TravelPlanBase(BaseModel):
         return v
     duration_days: int = Field(..., description="旅行天数")
     budget: Optional[float] = Field(None, description="预算")
+    transportation: Optional[str] = Field(None, description="出行方式")
     preferences: Optional[Dict[str, Any]] = Field(None, description="用户偏好")
     requirements: Optional[Dict[str, Any]] = Field(None, description="特殊要求")
 
@@ -104,11 +106,13 @@ class TravelPlanResponse(TravelPlanBase):
             'id': obj.id,
             'title': obj.title,
             'description': obj.description,
+            'departure': obj.departure,
             'destination': obj.destination,
             'start_date': obj.start_date,
             'end_date': obj.end_date,
             'duration_days': obj.duration_days,
             'budget': obj.budget,
+            'transportation': obj.transportation,
             'preferences': obj.preferences,
             'requirements': obj.requirements,
             'user_id': obj.user_id,

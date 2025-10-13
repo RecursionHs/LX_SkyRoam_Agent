@@ -19,9 +19,11 @@ def collect_destination_data_task(destination: str):
             
             # 收集所有类型的数据
             data = await data_collector.collect_all_data(
+                "北京",  # 默认出发地
                 destination, 
                 None,  # 这里应该传入具体的日期
-                None
+                None,
+                "mixed"  # 收集混合交通方式
             )
             
             await data_collector.close()

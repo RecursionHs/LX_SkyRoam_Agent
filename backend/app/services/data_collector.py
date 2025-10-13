@@ -34,13 +34,14 @@ class DataCollector:
     
     async def collect_flight_data(
         self, 
+        departure: str,
         destination: str, 
         start_date: datetime, 
         end_date: datetime
     ) -> List[Dict[str, Any]]:
         """收集航班数据"""
         try:
-            cache_key_str = cache_key("flights", destination, start_date.date(), end_date.date())
+            cache_key_str = cache_key("flights", f"{departure}-{destination}", start_date.date(), end_date.date())
             
             # 检查缓存
             cached_data = await get_cache(cache_key_str)
@@ -52,7 +53,8 @@ class DataCollector:
             flight_data = await self.mcp_client.get_flights(
                 destination=destination,
                 departure_date=start_date.date(),
-                return_date=end_date.date()
+                return_date=end_date.date(),
+                origin=departure
             )
             
             # 如果MCP数据不足，使用爬虫补充
@@ -63,7 +65,7 @@ class DataCollector:
                 flight_data.extend(scraped_flights)
             
             # 缓存数据
-            await set_cache(cache_key_str, flight_data, ttl=3600)  # 1小时缓存
+            await set_cache(cache_key_str, flight_data, ttl=300)  # 5分钟缓存
             
             logger.info(f"收集到 {len(flight_data)} 条航班数据")
             return flight_data
@@ -103,7 +105,7 @@ class DataCollector:
                 hotel_data.extend(scraped_hotels)
             
             # 缓存数据
-            await set_cache(cache_key_str, hotel_data, ttl=7200)  # 2小时缓存
+            await set_cache(cache_key_str, hotel_data, ttl=300)  # 5分钟缓存
             
             logger.info(f"收集到 {len(hotel_data)} 条酒店数据")
             return hotel_data
@@ -207,7 +209,7 @@ class DataCollector:
                     logger.warning(f"爬虫景点数据收集失败: {e}")
             
             # 缓存数据
-            await set_cache(cache_key_str, attraction_data, ttl=86400)  # 24小时缓存
+            await set_cache(cache_key_str, attraction_data, ttl=300)  # 5分钟缓存
             
             logger.info(f"收集到 {len(attraction_data)} 条景点数据")
             return attraction_data
@@ -235,35 +237,8 @@ class DataCollector:
             weather_data = {}
             
             # 优先使用内置百度地图功能
-            try:
-                logger.info(f"使用内置百度地图功能收集天气数据: {destination}")
-                
-                # 先获取目的地的坐标
-                geocode_result = await map_geocode(destination, is_china="true")
-                if geocode_result.get("status") == 0:
-                    location = geocode_result.get("result", {}).get("location", {})
-                    lat = location.get("lat")
-                    lng = location.get("lng")
-                    
-                    if lat and lng:
-                        # 使用坐标查询天气
-                        weather_result = await map_weather(
-                            location=f"{lng},{lat}",  # 百度地图API需要经度在前
-                            is_china="true"
-                        )
-                        
-                        if weather_result.get("status") == 0:
-                            weather_data = {
-                                "destination": destination,
-                                "location": {"lat": lat, "lng": lng},
-                                "current_weather": weather_result.get("result", {}),
-                                "source": "百度地图API",
-                                "collected_at": datetime.now().isoformat()
-                            }
-                            logger.info(f"从百度地图API获取到天气数据: {destination}")
-                
-            except Exception as e:
-                logger.warning(f"百度地图天气API调用失败: {e}")
+            # 暂时禁用百度地图天气API调用，等待正确的接口
+            logger.info(f"天气API暂时禁用，跳过百度地图天气数据收集: {destination}")
             
             # 如果百度地图数据不足，使用MCP工具补充
             if not weather_data:
@@ -277,27 +252,13 @@ class DataCollector:
                 except Exception as e:
                     logger.warning(f"MCP天气服务调用失败: {e}")
             
-            # 如果仍然没有数据，使用模拟数据
+            # 如果仍然没有数据，返回空字典
             if not weather_data:
-                weather_data = {
-                    "destination": destination,
-                    "current_weather": {
-                        "temperature": "22°C",
-                        "condition": "晴",
-                        "humidity": "65%",
-                        "wind": "微风"
-                    },
-                    "forecast": [
-                        {"date": start_date.date().isoformat(), "high": "25°C", "low": "18°C", "condition": "晴"},
-                        {"date": end_date.date().isoformat(), "high": "23°C", "low": "16°C", "condition": "多云"}
-                    ],
-                    "source": "模拟数据",
-                    "collected_at": datetime.now().isoformat()
-                }
-                logger.info(f"使用模拟天气数据: {destination}")
+                logger.warning(f"无法获取 {destination} 的天气数据")
+                weather_data = {}
             
             # 缓存数据
-            await set_cache(cache_key_str, weather_data, ttl=1800)  # 30分钟缓存
+            await set_cache(cache_key_str, weather_data, ttl=300)  # 5分钟缓存
             
             logger.info(f"收集到天气数据: {destination}")
             return weather_data
@@ -401,7 +362,7 @@ class DataCollector:
                     logger.warning(f"爬虫餐厅数据收集失败: {e}")
             
             # 缓存数据
-            await set_cache(cache_key_str, restaurant_data, ttl=43200)  # 12小时缓存
+            await set_cache(cache_key_str, restaurant_data, ttl=300)  # 5分钟缓存
             
             logger.info(f"收集到 {len(restaurant_data)} 条餐厅数据")
             return restaurant_data
@@ -410,78 +371,59 @@ class DataCollector:
             logger.error(f"收集餐厅数据失败: {e}")
             return []
     
-    async def collect_transportation_data(self, destination: str) -> List[Dict[str, Any]]:
+    async def collect_transportation_data(self, departure: str, destination: str, transportation_mode: Optional[str] = None) -> List[Dict[str, Any]]:
         """收集交通数据"""
         try:
-            cache_key_str = cache_key("transportation", destination)
+            # 为不同出行方式生成不同的缓存键
+            mode_key = transportation_mode if transportation_mode else "mixed"
+            cache_key_str = cache_key("transportation", f"{departure}-{destination}-{mode_key}")
             
             # 检查缓存
             cached_data = await get_cache(cache_key_str)
             if cached_data:
-                logger.info(f"使用缓存的交通数据: {destination}")
+                logger.info(f"使用缓存的交通数据: {destination}, 出行方式: {transportation_mode or '混合'}")
+                logger.debug(f"缓存的交通数据: {cached_data}")
                 return cached_data
             
             transport_data = []
             
-            # 优先使用内置百度地图功能
+            # 根据用户选择的出行方式获取相应的交通数据
             try:
-                logger.info(f"使用内置百度地图功能收集交通数据: {destination}")
+                logger.info(f"使用内置百度地图功能收集交通数据: {destination}, 出行方式: {transportation_mode or '混合'}")
                 
-                # 获取路线规划数据
-                directions_result = await map_directions(
-                    origin="上海市中心",
-                    destination=destination,
-                    model="transit",
-                    is_china="true"
-                )
-                
-                if directions_result.get("status") == 0:
-                    routes = directions_result.get("result", {}).get("routes", [])
-                    for i, route in enumerate(routes[:3]):  # 取前3条路线
-                        transport_item = {
-                            "type": "公交",
-                            "description": f"从上海市中心到{destination}的公交路线",
-                            "duration": route.get("duration", 0) // 60,  # 转换为分钟
-                            "distance": route.get("distance", 0) // 1000,  # 转换为公里
-                            "cost": "2-8元",
-                            "route": f"路线{i+1}",
-                            "operating_hours": "06:00-23:00",
-                            "source": "百度地图API"
-                        }
-                        transport_data.append(transport_item)
-                
-                # 获取地点搜索数据（交通枢纽）
-                places_result = await map_search_places(
-                    query="地铁站",
-                    region=destination,
-                    tag="交通设施服务",
-                    is_china="true"
-                )
-                
-                if places_result.get("status") == 0:
-                    places = places_result.get("result", {}).get("items", [])
-                    for place in places[:2]:  # 取前2个地铁站
-                        transport_item = {
-                            "type": "地铁",
-                            "description": f"{place.get('name', '地铁站')} - {place.get('address', '')}",
-                            "duration": 30,  # 估算时间
-                            "distance": 5,   # 估算距离
-                            "cost": "3-10元",
-                            "route": place.get('name', '地铁站'),
-                            "operating_hours": "05:30-23:30",
-                            "source": "百度地图API"
-                        }
-                        transport_data.append(transport_item)
+                # 根据出行方式收集不同的交通数据
+                if transportation_mode == "car":
+                    # 自驾出行，获取驾车路线
+                    await self._collect_driving_data(departure, destination, transport_data)
+                elif transportation_mode == "flight":
+                    # 飞机出行，获取机场交通信息
+                    await self._collect_flight_transport_data(departure, destination, transport_data)
+                elif transportation_mode == "train":
+                    # 火车出行，获取火车站交通信息
+                    await self._collect_train_transport_data(departure, destination, transport_data)
+                elif transportation_mode == "bus":
+                    # 大巴出行，获取长途汽车站交通信息
+                    await self._collect_bus_transport_data(departure, destination, transport_data)
+                else:
+                    # 未指定或混合交通，收集所有交通方式
+                    await self._collect_mixed_transport_data(departure, destination, transport_data)
                 
                 logger.info(f"从百度地图API获取到 {len(transport_data)} 条交通数据")
                 
             except Exception as e:
-                logger.warning(f"百度地图API调用失败: {e}")
+                error_msg = str(e)
+                if "不支持跨域公交路线规划" in error_msg:
+                    logger.warning(f"跨城公交不支持，尝试其他交通方式: {e}")
+                    # 跨城公交不支持时，提供替代方案
+                    await self._add_intercity_alternatives(departure, destination, transport_data)
+                else:
+                    logger.warning(f"百度地图API调用失败: {e}")
+                    # API失败时，不提供模拟数据，宁缺毋滥
             
             # 如果百度地图数据不足，使用MCP工具补充
             if len(transport_data) < 5:
                 try:
-                    mcp_data = await self.mcp_client.get_transportation(destination)
+                    mcp_data = await self.mcp_client.get_transportation(departure, destination)
                     transport_data.extend(mcp_data)
                     logger.info(f"从MCP服务补充 {len(mcp_data)} 条交通数据")
                 except Exception as e:
@@ -496,8 +438,8 @@ class DataCollector:
                 except Exception as e:
                     logger.warning(f"爬虫数据收集失败: {e}")
             
-            # 缓存数据
-            await set_cache(cache_key_str, transport_data, ttl=86400)  # 24小时缓存
+            # 缓存数据 - 交通信息瞬息万变，缩短缓存时间
+            await set_cache(cache_key_str, transport_data, ttl=1800)  # 30分钟缓存
             
             logger.info(f"收集到 {len(transport_data)} 条交通数据")
             return transport_data
@@ -506,23 +448,38 @@ class DataCollector:
             logger.error(f"收集交通数据失败: {e}")
             return []
     
+    def _estimate_driving_cost(self, distance_meters: int) -> str:
+        """估算自驾费用"""
+        distance_km = distance_meters // 1000
+        
+        # 基础费用计算：油费 + 过路费
+        fuel_cost = distance_km * 0.6  # 每公里0.6元油费
+        toll_cost = distance_km * 0.4  # 每公里0.4元过路费（估算）
+        
+        total_cost = fuel_cost + toll_cost
+        
+        return f"{total_cost:.1f}元"
+    
+    
     async def collect_all_data(
         self, 
+        departure: str,
         destination: str, 
         start_date: datetime, 
-        end_date: datetime
+        end_date: datetime,
+        transportation_mode: Optional[str] = None
     ) -> Dict[str, Any]:
         """收集所有类型的数据"""
         logger.info(f"开始收集 {destination} 的所有数据")
         
         # 并行收集所有数据
         tasks = [
-            self.collect_flight_data(destination, start_date, end_date),
+            self.collect_flight_data(departure, destination, start_date, end_date),
             self.collect_hotel_data(destination, start_date, end_date),
             self.collect_attraction_data(destination),
             self.collect_weather_data(destination, start_date, end_date),
             self.collect_restaurant_data(destination),
-            self.collect_transportation_data(destination)
+            self.collect_transportation_data(departure, destination, transportation_mode)  # 根据指定出行方式收集交通数据
         ]
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -536,6 +493,290 @@ class DataCollector:
             "transportation": results[5] if not isinstance(results[5], Exception) else []
         }
     
+    async def _collect_driving_data(self, departure: str, destination: str, transport_data: List[Dict[str, Any]]):
+        """收集自驾交通数据"""
+        try:
+            # 使用内置百度地图功能
+            from app.tools.baidu_maps_integration import map_directions
+            
+            directions_result = await map_directions(
+                origin=departure,
+                destination=destination,
+                model="driving",
+                is_china="true"
+            )
+            
+            # 解析百度地图返回结果
+            if directions_result and directions_result.get("status") == 0:
+                routes = directions_result.get("result", {}).get("routes", [])
+                for i, route in enumerate(routes[:3]):  # 取前3条路线
+                    # 百度地图API返回的距离和时间字段
+                    distance = route.get("distance", 0)  # 单位：米
+                    duration = route.get("duration", 0)  # 单位：秒
+                    
+                    # 计算路况信息
+                    traffic_info = route.get("traffic", {})
+                    congestion_level = traffic_info.get("congestion", "未知")
+                    road_conditions = traffic_info.get("road_conditions", [])
+                    
+                    transport_item = {
+                        "id": f"baidu_driving_{i+1}",
+                        "type": "自驾",
+                        "name": f"驾车路线{i+1}",
+                        "description": f"从{departure}到{destination}的自驾路线",
+                        "duration": duration // 60 if duration > 0 else 0,  # 转换为分钟
+                        "distance": distance // 1000 if distance > 0 else 0,  # 转换为公里
+                        "price": int(float(self._estimate_driving_cost(distance).replace("元", ""))),
+                        "currency": "CNY",
+                        "operating_hours": "24小时",
+                        "frequency": "随时",
+                        "coverage": [destination],
+                        "features": ["实时路况", "多方案选择"],
+                        "route": f"驾车路线{i+1}",
+                        "traffic_conditions": {
+                            "congestion_level": congestion_level,
+                            "road_conditions": road_conditions,
+                            "real_time": True
+                        },
+                        "source": "百度地图API"
+                    }
+                    transport_data.append(transport_item)
+
+                    logger.debug(f"收集自驾数据: {transport_item}")
+                    
+        except Exception as e:
+            logger.warning(f"收集自驾数据失败: {e}")
+    
+    async def _collect_flight_transport_data(self, departure: str, destination: str, transport_data: List[Dict[str, Any]]):
+        """收集飞机交通数据"""
+        try:
+            # 使用内置百度地图功能
+            from app.tools.baidu_maps_integration import map_search_places
+            
+            airport_query = f"{destination}机场"
+            places_result = await map_search_places(
+                query=airport_query,
+                region=destination,
+                tag="交通设施服务",
+                is_china="true"
+            )
+            
+            # 解析百度地图返回结果
+            if places_result and places_result.get("status") == 0:
+                places = places_result.get("results", [])
+                for place in places[:2]:  # 取前2个机场
+                    transport_item = {
+                        "id": f"baidu_airport_{len(transport_data)+1}",
+                        "type": "机场",
+                        "name": place.get('name', '机场'),
+                        "description": f"{place.get('name', '机场')} - {place.get('address', '')}",
+                        "duration": 120,  # 估算机场交通时间
+                        "distance": 30,   # 估算距离
+                        "price": 125,  # 取中间值
+                        "currency": "CNY",
+                        "operating_hours": "24小时",
+                        "frequency": "30-60分钟",
+                        "coverage": [destination],
+                        "features": ["机场大巴", "出租车", "地铁"],
+                        "route": place.get('name', '机场'),
+                        "source": "百度地图API"
+                    }
+                    transport_data.append(transport_item)
+                    
+        except Exception as e:
+            logger.warning(f"收集飞机交通数据失败: {e}")
+    
+    async def _collect_train_transport_data(self, departure: str, destination: str, transport_data: List[Dict[str, Any]]):
+        """收集火车交通数据"""
+        try:
+            # 使用内置百度地图功能
+            from app.tools.baidu_maps_integration import map_search_places
+            
+            station_query = f"{destination}火车站"
+            places_result = await map_search_places(
+                query=station_query,
+                region=destination,
+                tag="交通设施服务",
+                is_china="true"
+            )
+            
+            # 解析百度地图返回结果
+            if places_result and places_result.get("status") == 0:
+                places = places_result.get("results", [])
+                for place in places[:2]:  # 取前2个火车站
+                    transport_item = {
+                        "id": f"baidu_train_{len(transport_data)+1}",
+                        "type": "火车站",
+                        "name": place.get('name', '火车站'),
+                        "description": f"{place.get('name', '火车站')} - {place.get('address', '')}",
+                        "duration": 60,  # 估算火车站交通时间
+                        "distance": 15,   # 估算距离
+                        "price": 30,  # 取中间值
+                        "currency": "CNY",
+                        "operating_hours": "05:00-23:00",
+                        "frequency": "15-30分钟",
+                        "coverage": [destination],
+                        "features": ["公交", "地铁", "出租车"],
+                        "route": place.get('name', '火车站'),
+                        "source": "百度地图API"
+                    }
+                    transport_data.append(transport_item)
+                    
+        except Exception as e:
+            logger.warning(f"收集火车交通数据失败: {e}")
+    
+    async def _collect_bus_transport_data(self, departure: str, destination: str, transport_data: List[Dict[str, Any]]):
+        """收集大巴交通数据"""
+        try:
+            # 使用内置百度地图功能
+            from app.tools.baidu_maps_integration import map_search_places
+            
+            bus_station_query = f"{destination}汽车站"
+            places_result = await map_search_places(
+                query=bus_station_query,
+                region=destination,
+                tag="交通设施服务",
+                is_china="true"
+            )
+            
+            # 解析百度地图返回结果
+            if places_result and places_result.get("status") == 0:
+                places = places_result.get("results", [])
+                for place in places[:2]:  # 取前2个汽车站
+                    transport_item = {
+                        "id": f"baidu_bus_{len(transport_data)+1}",
+                        "type": "汽车站",
+                        "name": place.get('name', '汽车站'),
+                        "description": f"{place.get('name', '汽车站')} - {place.get('address', '')}",
+                        "duration": 45,  # 估算汽车站交通时间
+                        "distance": 10,   # 估算距离
+                        "price": 17,  # 取中间值
+                        "currency": "CNY",
+                        "operating_hours": "06:00-22:00",
+                        "frequency": "10-20分钟",
+                        "coverage": [destination],
+                        "features": ["公交", "出租车"],
+                        "route": place.get('name', '汽车站'),
+                        "source": "百度地图API"
+                    }
+                    transport_data.append(transport_item)
+                    
+        except Exception as e:
+            logger.warning(f"收集大巴交通数据失败: {e}")
+    
+    async def _collect_mixed_transport_data(self, departure: str, destination: str, transport_data: List[Dict[str, Any]]):
+        """收集混合交通数据"""
+        try:
+            # 收集多种交通方式
+            tasks = [
+                self._collect_driving_data(departure, destination, transport_data),
+                self._collect_flight_transport_data(departure, destination, transport_data),
+                self._collect_train_transport_data(departure, destination, transport_data),
+                self._collect_bus_transport_data(departure, destination, transport_data)
+            ]
+            
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 添加公共交通信息
+            from app.tools.baidu_maps_integration import map_directions
+            
+            directions_result = await map_directions(
+                origin=departure,
+                destination=destination,
+                model="transit",
+                is_china="true"
+            )
+            
+            # 解析百度地图返回结果
+            if directions_result and directions_result.get("status") == 0:
+                routes = directions_result.get("result", {}).get("routes", [])
+                for i, route in enumerate(routes[:2]):  # 取前2条公交路线
+                    transport_item = {
+                        "id": f"baidu_transit_{i+1}",
+                        "type": "公交",
+                        "name": f"公交路线{i+1}",
+                        "description": f"从{departure}到{destination}的公交路线",
+                        "duration": route.get("duration", 0) // 60,  # 转换为分钟
+                        "distance": route.get("distance", 0) // 1000,  # 转换为公里
+                        "price": 5,  # 取中间值
+                        "currency": "CNY",
+                        "operating_hours": "06:00-23:00",
+                        "frequency": "5-15分钟",
+                        "coverage": [destination],
+                        "features": ["实时到站", "多方案选择"],
+                        "route": f"公交路线{i+1}",
+                        "source": "百度地图API"
+                    }
+                    transport_data.append(transport_item)
+                    
+        except Exception as e:
+            logger.warning(f"收集混合交通数据失败: {e}")
+    
+    async def _add_intercity_alternatives(self, departure: str, destination: str, transport_data: List[Dict[str, Any]]):
+        """为跨城路线添加替代交通方案"""
+        try:
+            # 添加高铁/火车方案
+            train_item = {
+                "id": f"intercity_train_{len(transport_data)+1}",
+                "type": "高铁/火车",
+                "name": f"{departure}到{destination}高铁",
+                "description": f"从{departure}到{destination}的高铁/火车方案",
+                "duration": 60,  # 估算时间
+                "distance": 50,  # 估算距离
+                "price": 80,  # 估算价格
+                "currency": "CNY",
+                "operating_hours": "06:00-22:00",
+                "frequency": "30-60分钟",
+                "coverage": [destination],
+                "features": ["高铁", "火车", "城际列车"],
+                "route": f"{departure}站-{destination}站",
+                "source": "跨城替代方案"
+            }
+            transport_data.append(train_item)
+            
+            # 添加长途汽车方案
+            bus_item = {
+                "id": f"intercity_bus_{len(transport_data)+1}",
+                "type": "长途汽车",
+                "name": f"{departure}到{destination}大巴",
+                "description": f"从{departure}到{destination}的长途汽车方案",
+                "duration": 120,  # 估算时间
+                "distance": 50,  # 估算距离
+                "price": 40,  # 估算价格
+                "currency": "CNY",
+                "operating_hours": "06:00-20:00",
+                "frequency": "60-120分钟",
+                "coverage": [destination],
+                "features": ["长途汽车", "直达"],
+                "route": f"{departure}汽车站-{destination}汽车站",
+                "source": "跨城替代方案"
+            }
+            transport_data.append(bus_item)
+            
+            # 添加自驾方案
+            driving_item = {
+                "id": f"intercity_driving_{len(transport_data)+1}",
+                "type": "自驾",
+                "name": f"{departure}到{destination}自驾",
+                "description": f"从{departure}到{destination}的自驾方案",
+                "duration": 90,  # 估算时间
+                "distance": 50,  # 估算距离
+                "price": 60,  # 估算费用（油费+过路费）
+                "currency": "CNY",
+                "operating_hours": "24小时",
+                "frequency": "随时",
+                "coverage": [destination],
+                "features": ["自驾", "灵活"],
+                "route": f"{departure}-{destination}",
+                "source": "跨城替代方案"
+            }
+            transport_data.append(driving_item)
+            
+            logger.info(f"为跨城路线添加了 {len(transport_data)} 个替代方案")
+            
+        except Exception as e:
+            logger.warning(f"添加跨城替代方案失败: {e}")
+
     async def close(self):
         """关闭HTTP客户端"""
         await self.http_client.aclose()

@@ -72,7 +72,7 @@ class OpenAIClient:
                 **kwargs
             )
 
-            logger.debug(f"OpenAI API响应: {response.choices[0].message.content}")
+            # logger.debug(f"OpenAI API响应: {response.choices[0].message.content}")
             
             return response.choices[0].message.content
             
@@ -116,7 +116,7 @@ class OpenAIClient:
             response = await self.generate_text(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=2000
+                max_tokens=4096
             )
             
             # 尝试解析JSON响应

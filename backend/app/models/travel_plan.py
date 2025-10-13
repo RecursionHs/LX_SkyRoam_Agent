@@ -17,11 +17,13 @@ class TravelPlan(BaseModel):
     description = Column(Text, nullable=True)
     
     # 旅行参数
+    departure = Column(String(100), nullable=False)  # 出发地
     destination = Column(String(100), nullable=False)
     start_date = Column(DateTime, nullable=False)
     end_date = Column(DateTime, nullable=False)
     duration_days = Column(Integer, nullable=False)
     budget = Column(Float, nullable=True)
+    transportation = Column(String(50), nullable=True)  # 出行方式
     
     # 用户偏好
     preferences = Column(JSON, nullable=True)  # 存储用户偏好设置

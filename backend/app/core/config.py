@@ -48,12 +48,12 @@ class Settings(BaseSettings):
     MAP_API_KEY: str = ""      # Google Maps
     
     # MCP服务配置
-    BAIDU_MCP_ENDPOINT: str = "http://localhost:3000"  # 百度地图MCP服务（FastMCP默认端口）
+    BAIDU_MCP_ENDPOINT: str = "http://localhost:3001"  # 百度地图MCP服务端口
     AMAP_MCP_ENDPOINT: str = "http://localhost:3002"  # 高德地图MCP服务
-    MCP_TIMEOUT: int = 300  # MCP服务超时时间（秒）
+    MCP_TIMEOUT: int = 30  # MCP服务超时时间（秒）
 
     # MCP服务API密钥（通过环境变量传递给MCP服务）
-    BAIDU_MAPS_API_KEY: str = "q3kAmBy5yuLNuZwbl9YG1y3mU8lqFKQx"  # 百度地图API密钥
+    BAIDU_MAPS_API_KEY: str = ""  # 百度地图API密钥，从环境变量BAIDU_MAPS_API_KEY获取
     AMAP_API_KEY: str = ""       # 高德地图API密钥
 
     # 爬虫配置

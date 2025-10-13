@@ -42,6 +42,9 @@ class BackgroundTaskManager:
     
     async def cache_cleanup_task(self):
         """缓存清理任务"""
+        # 启动后先等待一段时间，避免阻塞主进程
+        await asyncio.sleep(30)  # 等待30秒后再开始
+        
         while self.running:
             try:
                 logger.info("执行缓存清理任务")
@@ -60,8 +63,8 @@ class BackgroundTaskManager:
                 
                 logger.info("缓存清理完成")
                 
-                # 每小时执行一次
-                await asyncio.sleep(3600)
+                # 每10分钟执行一次，避免长时间阻塞
+                await asyncio.sleep(600)
                 
             except Exception as e:
                 logger.error(f"缓存清理任务失败: {e}")
@@ -70,6 +73,9 @@ class BackgroundTaskManager:
     
     async def data_refresh_task(self):
         """数据刷新任务"""
+        # 启动后先等待一段时间，避免阻塞主进程
+        await asyncio.sleep(60)  # 等待1分钟后再开始
+        
         while self.running:
             try:
                 logger.info("执行数据刷新任务")
@@ -84,19 +90,26 @@ class BackgroundTaskManager:
                         break
                         
                     try:
-                        # 并行刷新数据，提高效率
+                        # 并行刷新数据，提高效率，添加超时处理
                         tasks = [
                             self.data_collector.collect_attraction_data(destination),
                             self.data_collector.collect_restaurant_data(destination),
-                            self.data_collector.collect_transportation_data(destination)
+                            self.data_collector.collect_transportation_data("北京", destination, "mixed")  # 使用北京作为默认出发地，收集混合交通方式
                         ]
                         
-                        await asyncio.gather(*tasks, return_exceptions=True)
+                        # 设置30秒超时，避免任务卡死
+                        await asyncio.wait_for(
+                            asyncio.gather(*tasks, return_exceptions=True),
+                            timeout=30.0
+                        )
                         logger.info(f"已刷新 {destination} 的数据")
                         
                         # 避免请求过于频繁
                         await asyncio.sleep(5)
                         
+                    except asyncio.TimeoutError:
+                        logger.warning(f"刷新 {destination} 数据超时，跳过")
+                        continue
                     except Exception as e:
                         logger.error(f"刷新 {destination} 数据失败: {e}")
                         # 继续处理下一个目的地
@@ -104,8 +117,8 @@ class BackgroundTaskManager:
                 
                 logger.info("数据刷新完成")
                 
-                # 每天执行一次
-                await asyncio.sleep(86400)
+                # 每30分钟执行一次，避免长时间阻塞
+                await asyncio.sleep(1800)
                 
             except Exception as e:
                 logger.error(f"数据刷新任务失败: {e}")
@@ -114,6 +127,9 @@ class BackgroundTaskManager:
     
     async def health_check_task(self):
         """健康检查任务"""
+        # 启动后先等待一段时间，避免阻塞主进程
+        await asyncio.sleep(10)  # 等待10秒后再开始
+        
         while self.running:
             try:
                 logger.info("执行健康检查任务")
@@ -131,8 +147,8 @@ class BackgroundTaskManager:
                 success_count = sum(1 for result in results if not isinstance(result, Exception))
                 logger.info(f"健康检查完成: {success_count}/{len(tasks)} 项通过")
                 
-                # 每10分钟执行一次
-                await asyncio.sleep(600)
+                # 每5分钟执行一次
+                await asyncio.sleep(300)
                 
             except Exception as e:
                 logger.error(f"健康检查失败: {e}")
@@ -141,6 +157,9 @@ class BackgroundTaskManager:
     
     async def monitoring_task(self):
         """监控任务"""
+        # 启动后先等待一段时间，避免阻塞主进程
+        await asyncio.sleep(5)  # 等待5秒后再开始
+        
         while self.running:
             try:
                 logger.info("执行监控任务")
@@ -171,8 +190,8 @@ class BackgroundTaskManager:
                 if disk_percent > 90:
                     logger.warning(f"磁盘使用率过高: {disk_percent}%")
                 
-                # 每5分钟执行一次
-                await asyncio.sleep(300)
+                # 每2分钟执行一次
+                await asyncio.sleep(120)
                 
             except Exception as e:
                 logger.error(f"监控任务失败: {e}")

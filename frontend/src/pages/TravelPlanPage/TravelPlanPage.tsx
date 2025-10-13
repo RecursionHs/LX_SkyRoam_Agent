@@ -33,11 +33,13 @@ const { Option } = Select;
 const { Step } = Steps;
 
 interface TravelRequest {
+  departure: string;  // 出发地
   destination: string;
   dateRange: [dayjs.Dayjs, dayjs.Dayjs];
   budget: number;
   preferences: string[];
   requirements: string;
+  transportation?: string;  // 出行方式（可选）
 }
 
 const TravelPlanPage: React.FC = () => {
@@ -114,12 +116,14 @@ const TravelPlanPage: React.FC = () => {
         method: 'POST',
         headers: REQUEST_CONFIG.headers,
         body: JSON.stringify({
-          title: `${values.destination} 旅行计划`, // 自动生成标题
+          title: `${values.departure} → ${values.destination} 旅行计划`, // 自动生成标题
+          departure: values.departure,
           destination: values.destination,
           start_date: values.dateRange[0].format('YYYY-MM-DD HH:mm:ss'),
           end_date: values.dateRange[1].format('YYYY-MM-DD HH:mm:ss'),
           duration_days: values.dateRange[1].diff(values.dateRange[0], 'day') + 1,
           budget: values.budget,
+          transportation: values.transportation,
           preferences: { interests: values.preferences },
           requirements: { special_requirements: values.requirements },
           user_id: 1 // 临时用户ID
@@ -366,6 +370,19 @@ const TravelPlanPage: React.FC = () => {
             <Row gutter={[24, 16]}>
               <Col xs={24} sm={12}>
                 <Form.Item
+                  name="departure"
+                  label="出发地"
+                  rules={[{ required: true, message: '请输入出发地' }]}
+                >
+                  <Input 
+                    placeholder="请输入出发地" 
+                    prefix={<GlobalOutlined />}
+                  />
+                </Form.Item>
+              </Col>
+              
+              <Col xs={24} sm={12}>
+                <Form.Item
                   name="destination"
                   label="目的地"
                   rules={[{ required: true, message: '请输入目的地' }]}
@@ -376,6 +393,9 @@ const TravelPlanPage: React.FC = () => {
                   />
                 </Form.Item>
               </Col>
+            </Row>
+            
+            <Row gutter={[24, 16]}>
               
               <Col xs={24} sm={12}>
                 <Form.Item
@@ -404,6 +424,21 @@ const TravelPlanPage: React.FC = () => {
                     <Option value={5000}>3000-5000元</Option>
                     <Option value={10000}>5000-10000元</Option>
                     <Option value={20000}>10000元以上</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              
+              <Col xs={24} sm={12}>
+                <Form.Item
+                  name="transportation"
+                  label="出行方式"
+                >
+                  <Select placeholder="请选择出行方式（可选）" allowClear>
+                    <Option value="flight">飞机</Option>
+                    <Option value="train">火车</Option>
+                    <Option value="bus">大巴</Option>
+                    <Option value="car">自驾</Option>
+                    <Option value="mixed">混合交通</Option>
                   </Select>
                 </Form.Item>
               </Col>

@@ -121,12 +121,12 @@ class AgentService:
         
         # 并行收集各类数据
         tasks = [
-            self.data_collector.collect_flight_data(plan.destination, plan.start_date, plan.end_date),
+            self.data_collector.collect_flight_data(plan.departure, plan.destination, plan.start_date, plan.end_date),
             self.data_collector.collect_hotel_data(plan.destination, plan.start_date, plan.end_date),
             self.data_collector.collect_attraction_data(plan.destination),
             self.data_collector.collect_weather_data(plan.destination, plan.start_date, plan.end_date),
             self.data_collector.collect_restaurant_data(plan.destination),
-            self.data_collector.collect_transportation_data(plan.destination)
+            self.data_collector.collect_transportation_data(plan.departure, plan.destination, plan.transportation)
         ]
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -184,9 +184,11 @@ class AgentService:
             user_prompt = f"""
 请分析以下旅行数据并增强：
 
+出发地：{plan.departure}
 目的地：{plan.destination}
 旅行天数：{plan.duration_days}天
 预算：{plan.budget}元
+出行方式：{plan.transportation or '未指定'}
 用户偏好：{preferences or '无特殊偏好'}
 
 现有数据：

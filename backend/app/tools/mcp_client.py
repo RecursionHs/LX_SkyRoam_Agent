@@ -32,22 +32,22 @@ class MCPClient:
         try:
             # 使用Amadeus API获取真实航班数据
             if not settings.FLIGHT_API_KEY:
-                logger.warning("航班API密钥未配置，使用模拟数据")
-                return self._get_mock_flights(destination, departure_date, return_date, origin)
+                logger.warning("航班API密钥未配置，返回空列表")
+                return []
             
             # 调用Amadeus API
             flights = await self._get_amadeus_flights(origin, destination, departure_date, return_date)
             
             if not flights:
-                logger.warning("Amadeus API未返回数据，使用模拟数据")
-                return self._get_mock_flights(destination, departure_date, return_date, origin)
+                logger.warning("Amadeus API未返回数据，返回空列表")
+                return []
             
             logger.info(f"从Amadeus API获取到 {len(flights)} 条航班数据")
             return flights
             
         except Exception as e:
             logger.error(f"获取航班数据失败: {e}")
-            return self._get_mock_flights(destination, departure_date, return_date, origin)
+            return []
     
     async def _get_amadeus_flights(
         self, 
@@ -75,13 +75,13 @@ class MCPClient:
                 "Content-Type": "application/json"
             }
             
-            async with self.http_client.get(url, params=params, headers=headers) as response:
-                if response.status_code == 200:
-                    data = response.json()
-                    return self._parse_amadeus_flights(data)
-                else:
-                    logger.error(f"Amadeus API错误: {response.status_code}")
-                    return []
+            response = await self.http_client.get(url, params=params, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                return self._parse_amadeus_flights(data)
+            else:
+                logger.error(f"Amadeus API错误: {response.status_code}")
+                return []
                     
         except Exception as e:
             logger.error(f"Amadeus API调用失败: {e}")
@@ -154,51 +154,6 @@ class MCPClient:
         }
         return city_codes.get(city, "PEK")  # 默认返回北京
     
-    def _get_mock_flights(
-        self, 
-        destination: str, 
-        departure_date: date, 
-        return_date: date,
-        origin: str = "北京"
-    ) -> List[Dict[str, Any]]:
-        """获取模拟航班数据"""
-        flights = [
-            {
-                "id": "flight_1",
-                "airline": "中国国际航空",
-                "flight_number": "CA1234",
-                "departure_time": "08:00",
-                "arrival_time": "11:30",
-                "duration": "3h30m",
-                "price": 1200,
-                "currency": "CNY",
-                "aircraft": "Boeing 737",
-                "stops": 0,
-                "origin": origin,
-                "destination": destination,
-                "date": departure_date.isoformat(),
-                "rating": 4.0
-            },
-            {
-                "id": "flight_2", 
-                "airline": "东方航空",
-                "flight_number": "MU5678",
-                "departure_time": "14:20",
-                "arrival_time": "17:45",
-                "duration": "3h25m",
-                "price": 1350,
-                "currency": "CNY",
-                "aircraft": "Airbus A320",
-                "stops": 0,
-                "origin": origin,
-                "destination": destination,
-                "date": departure_date.isoformat(),
-                "rating": 4.2
-            }
-        ]
-        
-        logger.info(f"获取到 {len(flights)} 条模拟航班信息")
-        return flights
     
     async def get_hotels(
         self, 
@@ -210,22 +165,22 @@ class MCPClient:
         try:
             # 使用Booking.com API获取真实酒店数据
             if not settings.HOTEL_API_KEY:
-                logger.warning("酒店API密钥未配置，使用模拟数据")
-                return self._get_mock_hotels(destination, check_in, check_out)
+                logger.warning("酒店API密钥未配置，返回空列表")
+                return []
             
             # 调用Booking.com API
             hotels = await self._get_booking_hotels(destination, check_in, check_out)
             
             if not hotels:
-                logger.warning("Booking.com API未返回数据，使用模拟数据")
-                return self._get_mock_hotels(destination, check_in, check_out)
+                logger.warning("Booking.com API未返回数据，返回空列表")
+                return []
             
             logger.info(f"从Booking.com API获取到 {len(hotels)} 条酒店数据")
             return hotels
             
         except Exception as e:
             logger.error(f"获取酒店数据失败: {e}")
-            return self._get_mock_hotels(destination, check_in, check_out)
+            return []
     
     async def _get_booking_hotels(
         self, 
@@ -252,13 +207,13 @@ class MCPClient:
                 "Content-Type": "application/json"
             }
             
-            async with self.http_client.get(url, params=params, headers=headers) as response:
-                if response.status_code == 200:
-                    data = response.json()
-                    return self._parse_booking_hotels(data)
-                else:
-                    logger.error(f"Booking.com API错误: {response.status_code}")
-                    return []
+            response = await self.http_client.get(url, params=params, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                return self._parse_booking_hotels(data)
+            else:
+                logger.error(f"Booking.com API错误: {response.status_code}")
+                return []
                     
         except Exception as e:
             logger.error(f"Booking.com API调用失败: {e}")
@@ -293,70 +248,28 @@ class MCPClient:
             logger.error(f"解析Booking.com酒店数据失败: {e}")
             return []
     
-    def _get_mock_hotels(
-        self, 
-        destination: str, 
-        check_in: date, 
-        check_out: date
-    ) -> List[Dict[str, Any]]:
-        """获取模拟酒店数据"""
-        hotels = [
-            {
-                "id": "hotel_1",
-                "name": "希尔顿酒店",
-                "address": f"{destination}市中心",
-                "rating": 4.5,
-                "price_per_night": 800,
-                "currency": "CNY",
-                "amenities": ["WiFi", "健身房", "游泳池", "餐厅"],
-                "room_types": ["标准间", "豪华间", "套房"],
-                "check_in": check_in.isoformat(),
-                "check_out": check_out.isoformat(),
-                "images": ["https://example.com/hotel1.jpg"],
-                "coordinates": {"lat": 39.9042, "lng": 116.4074},
-                "star_rating": 5
-            },
-            {
-                "id": "hotel_2",
-                "name": "万豪酒店",
-                "address": f"{destination}商业区",
-                "rating": 4.8,
-                "price_per_night": 1200,
-                "currency": "CNY",
-                "amenities": ["WiFi", "健身房", "水疗中心", "商务中心"],
-                "room_types": ["豪华间", "行政间", "总统套房"],
-                "check_in": check_in.isoformat(),
-                "check_out": check_out.isoformat(),
-                "images": ["https://example.com/hotel2.jpg"],
-                "coordinates": {"lat": 39.9042, "lng": 116.4074},
-                "star_rating": 5
-            }
-        ]
-        
-        logger.info(f"获取到 {len(hotels)} 条模拟酒店信息")
-        return hotels
     
     async def get_attractions(self, destination: str) -> List[Dict[str, Any]]:
         """获取景点信息"""
         try:
             # 使用Google Places API获取真实景点数据
             if not settings.MAP_API_KEY:
-                logger.warning("地图API密钥未配置，使用模拟数据")
-                return self._get_mock_attractions(destination)
+                logger.warning("地图API密钥未配置，返回空列表")
+                return []
             
             # 调用Google Places API
             attractions = await self._get_google_places(destination)
             
             if not attractions:
-                logger.warning("Google Places API未返回数据，使用模拟数据")
-                return self._get_mock_attractions(destination)
+                logger.warning("Google Places API未返回数据，返回空列表")
+                return []
             
             logger.info(f"从Google Places API获取到 {len(attractions)} 条景点数据")
             return attractions
             
         except Exception as e:
             logger.error(f"获取景点数据失败: {e}")
-            return self._get_mock_attractions(destination)
+            return []
     
     async def _get_google_places(self, destination: str) -> List[Dict[str, Any]]:
         """调用Google Places API获取景点数据"""
@@ -370,13 +283,13 @@ class MCPClient:
                 "language": "zh-CN"
             }
             
-            async with self.http_client.get(url, params=params) as response:
-                if response.status_code == 200:
-                    data = response.json()
-                    return self._parse_google_places(data)
-                else:
-                    logger.error(f"Google Places API错误: {response.status_code}")
-                    return []
+            response = await self.http_client.get(url, params=params)
+            if response.status_code == 200:
+                data = response.json()
+                return self._parse_google_places(data)
+            else:
+                logger.error(f"Google Places API错误: {response.status_code}")
+                return []
                     
         except Exception as e:
             logger.error(f"Google Places API调用失败: {e}")
@@ -411,43 +324,6 @@ class MCPClient:
             logger.error(f"解析Google Places景点数据失败: {e}")
             return []
     
-    def _get_mock_attractions(self, destination: str) -> List[Dict[str, Any]]:
-        """获取模拟景点数据"""
-        attractions = [
-            {
-                "id": "attr_1",
-                "name": f"{destination}著名景点1",
-                "category": "历史建筑",
-                "description": f"{destination}的标志性建筑",
-                "rating": 4.7,
-                "price": 0,
-                "currency": "CNY",
-                "opening_hours": "全天开放",
-                "address": f"{destination}市中心",
-                "coordinates": {"lat": 39.9042, "lng": 116.4074},
-                "images": ["https://example.com/attraction1.jpg"],
-                "features": ["免费参观", "历史意义", "拍照圣地"],
-                "visit_duration": "2-3小时"
-            },
-            {
-                "id": "attr_2",
-                "name": f"{destination}著名景点2",
-                "category": "博物馆",
-                "description": f"{destination}的文化地标",
-                "rating": 4.8,
-                "price": 60,
-                "currency": "CNY",
-                "opening_hours": "08:30-17:00",
-                "address": f"{destination}文化区",
-                "coordinates": {"lat": 39.9163, "lng": 116.3972},
-                "images": ["https://example.com/attraction2.jpg"],
-                "features": ["世界文化遗产", "古建筑", "文物展览"],
-                "visit_duration": "3-4小时"
-            }
-        ]
-        
-        logger.info(f"获取到 {len(attractions)} 条模拟景点信息")
-        return attractions
     
     async def get_weather(
         self, 
@@ -461,32 +337,11 @@ class MCPClient:
                 logger.warning("天气API密钥未配置")
                 return {}
             
-            # 模拟API调用
+            # 返回空数据，等待真实API实现
             weather_data = {
                 "location": destination,
-                "forecast": [
-                    {
-                        "date": start_date.isoformat(),
-                        "temperature": {"high": 25, "low": 15},
-                        "condition": "晴天",
-                        "humidity": 60,
-                        "wind_speed": 10,
-                        "precipitation": 0
-                    },
-                    {
-                        "date": end_date.isoformat(),
-                        "temperature": {"high": 22, "low": 12},
-                        "condition": "多云",
-                        "humidity": 70,
-                        "wind_speed": 8,
-                        "precipitation": 0
-                    }
-                ],
-                "recommendations": [
-                    "建议携带轻便外套",
-                    "适合户外活动",
-                    "注意防晒"
-                ]
+                "forecast": [],
+                "recommendations": []
             }
             
             logger.info(f"获取到天气信息: {destination}")
@@ -499,35 +354,8 @@ class MCPClient:
     async def get_restaurants(self, destination: str) -> List[Dict[str, Any]]:
         """获取餐厅信息"""
         try:
-            # 模拟API调用
-            restaurants = [
-                {
-                    "id": "rest_1",
-                    "name": "全聚德烤鸭店",
-                    "cuisine_type": "北京菜",
-                    "rating": 4.5,
-                    "price_range": "$$$",
-                    "address": f"{destination}王府井大街",
-                    "coordinates": {"lat": 39.9042, "lng": 116.4074},
-                    "opening_hours": "11:00-22:00",
-                    "specialties": ["北京烤鸭", "炸酱面", "豆汁"],
-                    "images": ["https://example.com/restaurant1.jpg"],
-                    "features": ["传统老字号", "适合聚餐", "有包间"]
-                },
-                {
-                    "id": "rest_2",
-                    "name": "海底捞火锅",
-                    "cuisine_type": "火锅",
-                    "rating": 4.7,
-                    "price_range": "$$",
-                    "address": f"{destination}三里屯",
-                    "coordinates": {"lat": 39.9042, "lng": 116.4074},
-                    "opening_hours": "10:00-24:00",
-                    "specialties": ["麻辣火锅", "番茄锅", "服务好"],
-                    "images": ["https://example.com/restaurant2.jpg"],
-                    "features": ["24小时营业", "优质服务", "适合家庭"]
-                }
-            ]
+            # 返回空数据，等待真实API实现
+            restaurants = []
             
             logger.info(f"获取到 {len(restaurants)} 条餐厅信息")
             return restaurants
@@ -536,24 +364,26 @@ class MCPClient:
             logger.error(f"获取餐厅信息失败: {e}")
             return []
     
-    async def get_transportation(self, destination: str) -> List[Dict[str, Any]]:
+    async def get_transportation(self, departure: str, destination: str) -> List[Dict[str, Any]]:
         """获取交通信息"""
         try:
             # 使用MCP服务获取真实交通数据
-            transportation = await self._get_mcp_transportation(destination)
+            transportation = await self._get_mcp_transportation(departure, destination)
             
             if not transportation:
-                logger.warning("MCP服务未返回数据，使用模拟数据")
-                return self._get_mock_transportation(destination)
+                logger.warning("MCP服务未返回数据，返回空列表")
+                return []
             
             logger.info(f"从MCP服务获取到 {len(transportation)} 条交通数据")
+
+            logger.debug(f"MCP服务返回的交通数据: {transportation}")
             return transportation
             
         except Exception as e:
             logger.error(f"获取交通数据失败: {e}")
-            return self._get_mock_transportation(destination)
+            return []
     
-    async def _get_mcp_transportation(self, destination: str) -> List[Dict[str, Any]]:
+    async def _get_mcp_transportation(self, departure: str, destination: str) -> List[Dict[str, Any]]:
         """通过MCP服务获取交通数据"""
         try:
             # MCP服务端点 - 从配置中获取
@@ -570,7 +400,7 @@ class MCPClient:
                     mcp_endpoints[0], 
                     "map_directions",
                     {
-                        "origin": "上海市中心",
+                        "origin": departure,
                         "destination": destination,
                         "model": "transit",
                         "is_china": "true"
@@ -587,9 +417,9 @@ class MCPClient:
                     mcp_endpoints[1],
                     "route_planning",
                     {
-                        "origin": "上海市中心",
+                        "origin": departure,
                         "destination": destination,
-                        "strategy": "0"  # 推荐路线
+                        "model": "transit"  # 使用公共交通模式
                     }
                 )
                 if amap_data:
@@ -658,9 +488,12 @@ class MCPClient:
             # 导入百度地图集成模块
             from app.tools.baidu_maps_integration import call_baidu_maps_tool
             
+            logger.debug(f"调用百度地图MCP: {method}, 参数: {params}")
+            
             # 调用对应的工具函数
             result = await call_baidu_maps_tool(method, params)
             
+            logger.debug(f"百度地图MCP返回: {result}")
             return result
                 
         except Exception as e:
@@ -722,6 +555,15 @@ class MCPClient:
         try:
             # 处理百度地图MCP返回的数据
             if source == "百度地图":
+                # MCP服务返回的是JSON字符串，需要先解析
+                if isinstance(data, str):
+                    try:
+                        import json
+                        data = json.loads(data)
+                    except json.JSONDecodeError:
+                        logger.error("MCP返回的数据不是有效的JSON格式")
+                        return []
+                
                 # 百度地图API返回格式
                 routes = data.get("result", {}).get("routes", [])
                 for i, route in enumerate(routes[:2]):  # 只取前2条路线
@@ -734,7 +576,7 @@ class MCPClient:
                         "currency": "CNY",
                         "operating_hours": "06:00-23:00",
                         "frequency": "3-10分钟",
-                        "coverage": [route.get("destination", {}).get("name", "目的地")],
+                        "coverage": ["目的地"],
                         "features": ["实时路况", "多方案选择"],
                         "source": "百度地图",
                         "duration": route.get("duration", 0) // 60,
@@ -743,6 +585,15 @@ class MCPClient:
             
             # 处理高德地图MCP返回的数据
             elif source == "高德地图":
+                # MCP服务返回的是JSON字符串，需要先解析
+                if isinstance(data, str):
+                    try:
+                        import json
+                        data = json.loads(data)
+                    except json.JSONDecodeError:
+                        logger.error("MCP返回的数据不是有效的JSON格式")
+                        return []
+                
                 routes = data.get("route", {}).get("paths", [])
                 for i, route in enumerate(routes[:2]):  # 只取前2条路线
                     transportation.append({
@@ -754,7 +605,7 @@ class MCPClient:
                         "currency": "CNY",
                         "operating_hours": "06:00-23:00",
                         "frequency": "3-10分钟",
-                        "coverage": [route.get("destination", {}).get("name", "目的地")],
+                        "coverage": ["目的地"],
                         "features": ["实时路况", "多方案选择"],
                         "source": "高德地图",
                         "duration": route.get("duration", 0) // 60,
@@ -765,6 +616,7 @@ class MCPClient:
             
         except Exception as e:
             logger.error(f"解析MCP交通数据失败: {e}")
+            logger.debug(f"原始数据: {data}")
             return []
     
     def _estimate_cost_from_route(self, route: Dict[str, Any]) -> int:
@@ -787,43 +639,6 @@ class MCPClient:
         except Exception:
             return 5  # 默认费用
     
-    def _get_mock_transportation(self, destination: str) -> List[Dict[str, Any]]:
-        """获取模拟交通数据"""
-        transportation = [
-            {
-                "id": "trans_1",
-                "type": "地铁",
-                "name": "地铁1号线",
-                "description": "连接市中心主要景点",
-                "price": 3,
-                "currency": "CNY",
-                "operating_hours": "05:00-23:00",
-                "frequency": "2-3分钟",
-                "coverage": ["天安门", "王府井", "西单"],
-                "features": ["快速", "便宜", "覆盖广"],
-                "source": "模拟数据",
-                "duration": 30,
-                "distance": 15
-            },
-            {
-                "id": "trans_2",
-                "type": "出租车",
-                "name": "出租车服务",
-                "description": "便捷的出行方式",
-                "price": 13,
-                "currency": "CNY",
-                "operating_hours": "24小时",
-                "frequency": "随时",
-                "coverage": ["全城覆盖"],
-                "features": ["门到门", "舒适", "24小时"],
-                "source": "模拟数据",
-                "duration": 20,
-                "distance": 12
-            }
-        ]
-        
-        logger.info(f"获取到 {len(transportation)} 条模拟交通信息")
-        return transportation
     
     async def get_images(self, query: str, count: int = 5) -> List[str]:
         """获取图片"""
@@ -832,12 +647,8 @@ class MCPClient:
                 logger.warning("地图API密钥未配置")
                 return []
             
-            # 模拟图片API调用
-            images = [
-                f"https://example.com/image1_{query}.jpg",
-                f"https://example.com/image2_{query}.jpg",
-                f"https://example.com/image3_{query}.jpg"
-            ]
+            # 返回空数据，等待真实API实现
+            images = []
             
             logger.info(f"获取到 {len(images)} 张图片")
             return images[:count]

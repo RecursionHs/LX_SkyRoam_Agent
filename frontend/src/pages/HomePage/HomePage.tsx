@@ -1,11 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
   Card, 
   Button, 
-  Input, 
-  DatePicker, 
-  Select, 
-  Form, 
   Row, 
   Col, 
   Typography, 
@@ -15,62 +11,22 @@ import {
   Carousel
 } from 'antd';
 import { 
-  SearchOutlined, 
   GlobalOutlined, 
   CalendarOutlined,
   DollarOutlined,
   HeartOutlined,
-  RocketOutlined
+  RocketOutlined,
+  ArrowRightOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import dayjs from 'dayjs';
 
 const { Title, Paragraph, Text } = Typography;
-const { RangePicker } = DatePicker;
-const { Option } = Select;
-
-interface TravelRequest {
-  destination: string;
-  dateRange: [dayjs.Dayjs, dayjs.Dayjs];
-  duration: number;
-  budget: number;
-  preferences: string[];
-  requirements: string;
-}
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
-  const [form] = Form.useForm();
-  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (values: TravelRequest) => {
-    setLoading(true);
-    try {
-      // 这里应该调用API创建旅行计划
-      console.log('提交的旅行请求:', values);
-      
-      // 模拟API调用
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // 跳转到计划页面，传递表单数据（将dayjs对象转换为字符串）
-      const formDataToPass = {
-        ...values,
-        dateRange: [
-          values.dateRange[0].format('YYYY-MM-DD'),
-          values.dateRange[1].format('YYYY-MM-DD')
-        ]
-      };
-      
-      navigate('/plan', { 
-        state: { 
-          formData: formDataToPass 
-        } 
-      });
-    } catch (error) {
-      console.error('提交失败:', error);
-    } finally {
-      setLoading(false);
-    }
+  const handleStartPlanning = () => {
+    navigate('/plan');
   };
 
   const features = [
@@ -137,8 +93,8 @@ const HomePage: React.FC = () => {
         </div>
       </div>
 
-      {/* 搜索表单 */}
-      <div className="search-section" style={{ 
+      {/* 开始规划按钮 */}
+      <div className="action-section" style={{ 
         marginTop: '-60px', 
         position: 'relative', 
         zIndex: 10 
@@ -148,105 +104,33 @@ const HomePage: React.FC = () => {
             style={{ 
               borderRadius: '16px', 
               boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
-              border: 'none'
+              border: 'none',
+              textAlign: 'center',
+              padding: '40px 20px'
             }}
           >
-            <Form
-              form={form}
-              layout="vertical"
-              onFinish={handleSubmit}
+            <Title level={3} style={{ marginBottom: '16px' }}>
+              开始您的智能旅行规划
+            </Title>
+            <Paragraph style={{ fontSize: '16px', color: '#666', marginBottom: '32px' }}>
+              只需几步，AI将为您生成完美的旅行方案
+            </Paragraph>
+            <Button 
+              type="primary" 
               size="large"
+              icon={<ArrowRightOutlined />}
+              onClick={handleStartPlanning}
+              style={{ 
+                height: '48px',
+                paddingLeft: '32px',
+                paddingRight: '32px',
+                borderRadius: '24px',
+                fontSize: '16px',
+                fontWeight: 'bold'
+              }}
             >
-              <Row gutter={[24, 16]}>
-                <Col xs={24} sm={12} md={6}>
-                  <Form.Item
-                    name="destination"
-                    label="目的地"
-                    rules={[{ required: true, message: '请输入目的地' }]}
-                  >
-                    <Input 
-                      placeholder="请输入目的地" 
-                      prefix={<GlobalOutlined />}
-                    />
-                  </Form.Item>
-                </Col>
-                
-                <Col xs={24} sm={12} md={6}>
-                  <Form.Item
-                    name="dateRange"
-                    label="出行时间"
-                    rules={[{ required: true, message: '请选择出行时间' }]}
-                  >
-                    <RangePicker 
-                      style={{ width: '100%' }}
-                      placeholder={['出发日期', '返回日期']}
-                    />
-                  </Form.Item>
-                </Col>
-                
-                <Col xs={24} sm={12} md={6}>
-                  <Form.Item
-                    name="budget"
-                    label="预算范围"
-                    rules={[{ required: true, message: '请选择预算范围' }]}
-                  >
-                    <Select placeholder="选择预算范围">
-                      <Option value={1000}>1000元以下</Option>
-                      <Option value={3000}>1000-3000元</Option>
-                      <Option value={5000}>3000-5000元</Option>
-                      <Option value={10000}>5000-10000元</Option>
-                      <Option value={20000}>10000元以上</Option>
-                    </Select>
-                  </Form.Item>
-                </Col>
-                
-                <Col xs={24} sm={12} md={6}>
-                  <Form.Item label=" ">
-                    <Button 
-                      type="primary" 
-                      htmlType="submit" 
-                      loading={loading}
-                      icon={<SearchOutlined />}
-                      style={{ 
-                        width: '100%', 
-                        height: '40px',
-                        borderRadius: '8px'
-                      }}
-                    >
-                      {loading ? '生成中...' : '开始规划'}
-                    </Button>
-                  </Form.Item>
-                </Col>
-              </Row>
-              
-              <Row gutter={[24, 16]}>
-                <Col xs={24} sm={12}>
-                  <Form.Item name="preferences" label="旅行偏好">
-                    <Select 
-                      mode="multiple" 
-                      placeholder="选择您的旅行偏好"
-                      allowClear
-                    >
-                      <Option value="culture">文化历史</Option>
-                      <Option value="nature">自然风光</Option>
-                      <Option value="food">美食体验</Option>
-                      <Option value="shopping">购物娱乐</Option>
-                      <Option value="adventure">冒险刺激</Option>
-                      <Option value="relaxation">休闲放松</Option>
-                    </Select>
-                  </Form.Item>
-                </Col>
-                
-                <Col xs={24} sm={12}>
-                  <Form.Item name="requirements" label="特殊要求">
-                    <Input.TextArea 
-                      placeholder="请输入特殊要求（如：带老人、带小孩、无障碍设施等）"
-                      rows={2}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-            </Form>
+              开始规划旅行
+            </Button>
           </Card>
         </div>
       </div>

@@ -87,14 +87,15 @@ class PlanGenerator:
             system_prompt = """你是一个专业的旅行规划师，擅长为游客制定详细的旅行计划。
 请根据提供的数据和用户需求，生成3-5个不同风格的旅行方案。
 
-每个方案必须严格按照以下JSON格式返回：
+重要：请直接返回一个包含所有方案的数组，不要嵌套在plans对象中。
 
-{
-  "plans": [
-    {
-      "id": "plan_1",
-      "type": "经济实惠型",
-      "title": "经济实惠的{目的地}之旅",
+必须严格按照以下JSON格式返回：
+
+[
+  {
+    "id": "plan_1",
+    "type": "经济实惠型",
+    "title": "经济实惠的{目的地}之旅",
       "description": "详细的方案描述",
       "flight": {
         "airline": "航空公司",
@@ -164,7 +165,6 @@ class PlanGenerator:
       "generated_at": "生成时间"
     }
   ]
-}
 
 请确保返回的JSON格式完全符合上述结构，不要添加任何额外的文本或说明。"""
             
@@ -172,11 +172,13 @@ class PlanGenerator:
             user_prompt = f"""
 请为以下旅行需求制定多个方案：
 
+出发地：{plan.departure}
 目的地：{plan.destination}
 旅行天数：{plan.duration_days}天
 出发日期：{plan.start_date}
 返回日期：{plan.end_date}
 预算：{plan.budget}元
+出行方式：{plan.transportation or '未指定'}
 用户偏好：{preferences or '无特殊偏好'}
 特殊要求：{plan.requirements or '无特殊要求'}
 
@@ -209,7 +211,9 @@ class PlanGenerator:
 4. 价格信息要基于真实数据，符合预算
 5. 景点安排要考虑地理位置和游览时间
 6. 餐饮建议要基于真实餐厅信息
-7. 交通方式要基于真实交通数据
+7. 交通方式要基于真实交通数据，包括耗时、费用、路况信息
+8. 优先考虑用户指定的出行方式：{plan.transportation or '未指定'}
+9. 在交通安排中要包含实时路况、拥堵情况、道路状况等详细信息
 
 请直接返回JSON格式的结果，不要添加任何其他文本。
 """
@@ -230,6 +234,14 @@ class PlanGenerator:
                 result = json.loads(cleaned_response)
                 if isinstance(result, dict) and 'plans' in result:
                     plans = result['plans']
+                    # 处理嵌套的plans结构
+                    if plans and isinstance(plans[0], dict) and 'plans' in plans[0]:
+                        # 扁平化嵌套的plans数组
+                        flattened_plans = []
+                        for plan_group in plans:
+                            if isinstance(plan_group.get('plans'), list):
+                                flattened_plans.extend(plan_group['plans'])
+                        plans = flattened_plans
                 elif isinstance(result, list):
                     plans = result
                 else:

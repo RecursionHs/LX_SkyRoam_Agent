@@ -9,9 +9,10 @@ import copy
 import httpx
 import re
 from typing import Dict, Any, List, Optional
+from app.core.config import settings
 
 # 获取API密钥
-api_key = os.getenv('BAIDU_MAPS_API_KEY', 'q3kAmBy5yuLNuZwbl9YG1y3mU8lqFKQx')
+api_key = os.getenv('BAIDU_MAPS_API_KEY', settings.BAIDU_MAPS_API_KEY)
 api_url = "https://api.map.baidu.com"
 
 def mask_api_key(text: str) -> str:
@@ -46,7 +47,10 @@ async def map_directions(
     origin: str,
     destination: str,
     model: str = "transit",
-    is_china: str = "true"
+    is_china: str = "true",
+    coord_type: str = "bd09ll",
+    ret_coordtype: str = "bd09ll",
+    steps_info: int = 1
 ) -> Dict[str, Any]:
     """
     路线规划服务
@@ -63,7 +67,7 @@ async def map_directions(
                 "from": "lx_skyroam"
             }
             
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 geocode_response = await client.get(geocode_url, params=geocode_params)
                 geocode_response.raise_for_status()
                 geocode_result = geocode_response.json()
@@ -85,7 +89,7 @@ async def map_directions(
                 "from": "lx_skyroam"
             }
             
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 geocode_response = await client.get(geocode_url, params=geocode_params)
                 geocode_response.raise_for_status()
                 geocode_result = geocode_response.json()
@@ -97,31 +101,66 @@ async def map_directions(
                 location = geocode_result.get("result", {}).get("location", {})
                 destination = f"{location.get('lat')},{location.get('lng')}"
         
-        # 路线规划
-        url = f"{api_url}/directionlite/v1/{model}" if is_china == "true" else f"{api_url}/direction_abroad/v1/{model}"
-        params = {
-            "ak": api_key,
-            "output": "json",
-            "origin": origin,
-            "destination": destination,
-            "from": "lx_skyroam"
-        }
+        # 路线规划 - 根据文档使用正确的API端点
+        if model == "transit":
+            # 公交路线规划使用专门的transit端点
+            url = f"{api_url}/directionlite/v1/transit"
+            params = {
+                "ak": api_key,
+                "output": "json",
+                "origin": origin,
+                "destination": destination,
+                "coord_type": coord_type,
+                "ret_coordtype": ret_coordtype,
+                "steps_info": steps_info,
+                "from": "lx_skyroam"
+            }
+        else:
+            # 其他路线规划使用通用端点
+            url = f"{api_url}/directionlite/v1/{model}" if is_china == "true" else f"{api_url}/direction_abroad/v1/{model}"
+            params = {
+                "ak": api_key,
+                "output": "json",
+                "origin": origin,
+                "destination": destination,
+                "coord_type": coord_type,
+                "ret_coordtype": ret_coordtype,
+                "from": "lx_skyroam"
+            }
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             response = await client.get(url, params=params)
             response.raise_for_status()
             result = response.json()
             
             if result.get("status") != 0:
                 error_msg = result.get("message", "未知错误")
-                raise Exception(f"路线规划错误: {mask_api_key(error_msg)}")
+                status = result.get("status")
+                
+                # 处理特定的错误情况
+                if status == 1001:
+                    raise Exception("没有公交方案")
+                elif status == 1002:
+                    raise Exception("不支持跨域公交路线规划")
+                elif status == 1003:
+                    raise Exception("路径规划失败，起终点附近可能没有车站")
+                else:
+                    raise Exception(f"路线规划错误: {mask_api_key(error_msg)}")
             
             return result
             
     except httpx.HTTPError as e:
-        raise Exception(f"HTTP请求失败: {str(e)}") from e
+        error_msg = f"HTTP请求失败: {str(e)}"
+        print(f"百度地图API请求失败: {error_msg}")
+        if 'url' in locals():
+            print(f"请求URL: {url}")
+        if 'params' in locals():
+            print(f"请求参数: {mask_api_key(str(params))}")
+        raise Exception(error_msg) from e
     except Exception as e:
-        raise Exception(f"路线规划异常: {str(e)}") from e
+        error_msg = f"路线规划异常: {str(e)}"
+        print(f"百度地图路线规划异常: {error_msg}")
+        raise Exception(error_msg) from e
 
 async def map_search_places(
     query: str,
@@ -161,7 +200,7 @@ async def map_search_places(
             else:
                 params["region"] = region
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             response = await client.get(url, params=params)
             response.raise_for_status()
             result = response.json()
@@ -190,7 +229,7 @@ async def map_geocode(address: str, is_china: str = "true") -> Dict[str, Any]:
             "from": "lx_skyroam"
         }
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             response = await client.get(url, params=params)
             response.raise_for_status()
             result = response.json()
@@ -222,7 +261,7 @@ async def map_reverse_geocode(latitude: float, longitude: float) -> Dict[str, An
             "from": "lx_skyroam"
         }
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             response = await client.get(url, params=params)
             response.raise_for_status()
             result = response.json()
@@ -255,7 +294,7 @@ async def map_weather(location: str = "", district_id: str = "", is_china: str =
         else:
             params["location"] = location
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
             response = await client.get(url, params=params)
             response.raise_for_status()
             result = response.json()
@@ -277,7 +316,8 @@ TOOL_FUNCTIONS = {
     "map_search_places": map_search_places,
     "map_geocode": map_geocode,
     "map_reverse_geocode": map_reverse_geocode,
-    "map_weather": map_weather
+    "map_weather": map_weather,
+    "route_planning": map_directions  # 路线规划使用map_directions
 }
 
 async def call_baidu_maps_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:

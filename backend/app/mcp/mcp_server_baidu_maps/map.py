@@ -7,6 +7,7 @@ from asyncio import sleep
 from mcp.server.fastmcp import FastMCP
 import mcp.types as types
 import re
+from loguru import logger
  
 # 创建MCP服务器实例
 mcp = FastMCP(
@@ -349,6 +350,9 @@ async def map_directions(
                 "address": origin,
                 "from": "py_mcp"
             }
+
+            logger.debug(f"geocode_url: {geocode_url}")
+            logger.debug(f"geocode_params: {geocode_params}")
             
             async with httpx.AsyncClient() as client:
                 geocode_response = await client.get(geocode_url, params=geocode_params)
@@ -388,20 +392,33 @@ async def map_directions(
                 location = geocode_result.get("result", {}).get("location", {})
                 destination = f"{location.get('lat')},{location.get('lng')}"
         
-        # 调用路线规划服务
+        # 调用路线规划服务 - 根据文档使用正确的API端点
         url = ""
-        if is_china == "true":
-            url = f"{api_url}/directionlite/v1/{model}"
+        if model == "transit":
+            # 公交路线规划使用专门的transit端点
+            url = f"{api_url}/directionlite/v1/transit"
+            params = {
+                "ak": f"{api_key}",
+                "output": "json",
+                "origin": origin,
+                "destination": destination,
+                "steps_info": 1,  # 下发step详情
+                "from": "py_mcp"
+            }
         else:
-            url = f"{api_url}/direction_abroad/v1/{model}"
-        
-        params = {
-            "ak": f"{api_key}",
-            "output": "json",
-            "origin": origin,
-            "destination": destination,
-            "from": "py_mcp"
-        }
+            # 其他路线规划使用通用端点
+            if is_china == "true":
+                url = f"{api_url}/directionlite/v1/{model}"
+            else:
+                url = f"{api_url}/direction_abroad/v1/{model}"
+            
+            params = {
+                "ak": f"{api_key}",
+                "output": "json",
+                "origin": origin,
+                "destination": destination,
+                "from": "py_mcp"
+            }
  
         async with httpx.AsyncClient() as client:
             response = await client.get(url, params=params)
@@ -410,8 +427,18 @@ async def map_directions(
  
         if result.get("status") != 0:
             error_msg = result.get("message", "unknown error")
-            raise Exception(f"API response error: {mask_api_key(error_msg)}")
- 
+            status = result.get("status")
+            
+            # 处理特定的错误情况
+            if status == 1001:
+                raise Exception("没有公交方案")
+            elif status == 1002:
+                raise Exception("不支持跨域公交路线规划")
+            elif status == 1003:
+                raise Exception("路径规划失败，起终点附近可能没有车站")
+            else:
+                raise Exception(f"API response error: {mask_api_key(error_msg)}")
+
         # if model == 'transit':
         #     return [types.TextContent(type="text", text=response.text)]
         # else:
