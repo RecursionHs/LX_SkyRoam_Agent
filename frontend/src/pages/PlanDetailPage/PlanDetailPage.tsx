@@ -26,7 +26,9 @@ import {
   ExportOutlined,
   ShareAltOutlined,
   EditOutlined,
-  HeartOutlined
+  HeartOutlined,
+  CloudOutlined,
+  ThunderboltOutlined
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
@@ -337,6 +339,134 @@ const PlanDetailPage: React.FC = () => {
                       </Row>
                     </Space>
                   </Card>
+
+                  {/* 天气信息 */}
+                  {currentPlan.weather_info && (
+                    <Card title={
+                      <Space>
+                        <CloudOutlined />
+                        <span>天气信息</span>
+                      </Space>
+                    } size="small" styles={{ body: { padding: '16px' } }}>
+                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                        {/* 天气预报数据 */}
+                        {currentPlan.weather_info.raw_data && Object.keys(currentPlan.weather_info.raw_data).length > 0 && (
+                          <div>
+                            {/* 地点信息 */}
+                            {currentPlan.weather_info.raw_data.location && (
+                              <div style={{ marginBottom: '12px' }}>
+                                <Text strong style={{ color: '#1890ff' }}>
+                                  📍 {currentPlan.weather_info.raw_data.location} 天气预报
+                                </Text>
+                              </div>
+                            )}
+                            
+                            {/* 多天天气预报 */}
+                            {currentPlan.weather_info.raw_data.forecast && currentPlan.weather_info.raw_data.forecast.length > 0 && (
+                              <div style={{ marginBottom: '12px' }}>
+                                {currentPlan.weather_info.raw_data.forecast.map((day: any, index: number) => (
+                                  <div key={index} style={{ 
+                                    padding: '8px', 
+                                    border: '1px solid #f0f0f0', 
+                                    borderRadius: '6px', 
+                                    marginBottom: '8px',
+                                    backgroundColor: index === 0 ? '#f6ffed' : '#fafafa'
+                                  }}>
+                                    <Row justify="space-between" align="middle">
+                                      <Col span={8}>
+                                        <Text strong style={{ color: index === 0 ? '#52c41a' : '#666' }}>
+                                          {day.date} {day.week && `周${day.week}`}
+                                        </Text>
+                                      </Col>
+                                      <Col span={8} style={{ textAlign: 'center' }}>
+                                        <div>
+                                          <Text style={{ fontSize: '12px', color: '#666' }}>
+                                            {day.dayweather}
+                                          </Text>
+                                          {day.nightweather && day.nightweather !== day.dayweather && (
+                                            <Text style={{ fontSize: '12px', color: '#666' }}>
+                                              转{day.nightweather}
+                                            </Text>
+                                          )}
+                                        </div>
+                                      </Col>
+                                      <Col span={8} style={{ textAlign: 'right' }}>
+                                        <Text strong style={{ color: '#ff4d4f' }}>
+                                          {day.daytemp}°
+                                        </Text>
+                                        <Text style={{ color: '#1890ff', margin: '0 4px' }}>
+                                          /
+                                        </Text>
+                                        <Text style={{ color: '#1890ff' }}>
+                                          {day.nighttemp}°
+                                        </Text>
+                                      </Col>
+                                    </Row>
+                                    {(day.daywind || day.daypower) && (
+                                      <Row style={{ marginTop: '4px' }}>
+                                        <Text style={{ fontSize: '11px', color: '#999' }}>
+                                          {day.daywind} {day.daypower}级
+                                        </Text>
+                                      </Row>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            
+                            {/* 兼容旧格式的天气数据 */}
+                            {!currentPlan.weather_info.raw_data.forecast && (
+                              <div style={{ marginTop: '8px' }}>
+                                {currentPlan.weather_info.raw_data.temperature && (
+                                  <Row justify="space-between">
+                                    <Text>温度</Text>
+                                    <Text>{currentPlan.weather_info.raw_data.temperature}°C</Text>
+                                  </Row>
+                                )}
+                                {currentPlan.weather_info.raw_data.weather && (
+                                  <Row justify="space-between">
+                                    <Text>天气</Text>
+                                    <Text>{currentPlan.weather_info.raw_data.weather}</Text>
+                                  </Row>
+                                )}
+                                {currentPlan.weather_info.raw_data.humidity && (
+                                  <Row justify="space-between">
+                                    <Text>湿度</Text>
+                                    <Text>{currentPlan.weather_info.raw_data.humidity}%</Text>
+                                  </Row>
+                                )}
+                                {currentPlan.weather_info.raw_data.wind_speed && (
+                                  <Row justify="space-between">
+                                    <Text>风速</Text>
+                                    <Text>{currentPlan.weather_info.raw_data.wind_speed} km/h</Text>
+                                  </Row>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* 旅游建议 */}
+                        {currentPlan.weather_info.travel_recommendations && currentPlan.weather_info.travel_recommendations.length > 0 && (
+                          <div>
+                            <Divider style={{ margin: '12px 0' }} />
+                            <Text strong style={{ color: '#52c41a' }}>
+                              <ThunderboltOutlined /> 旅游建议
+                            </Text>
+                            <div style={{ marginTop: '8px' }}>
+                              {currentPlan.weather_info.travel_recommendations.map((recommendation: string, index: number) => (
+                                <div key={index} style={{ marginBottom: '4px' }}>
+                                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                                    • {recommendation}
+                                  </Text>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </Space>
+                    </Card>
+                  )}
 
                   {/* 推荐餐厅 */}
                   <Card title="推荐餐厅" size="small">

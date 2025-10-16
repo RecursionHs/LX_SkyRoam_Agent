@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from loguru import logger
 import random
 import json
+import asyncio
 from app.tools.openai_client import openai_client
 from app.core.config import settings
 
@@ -37,7 +38,6 @@ class PlanGenerator:
                     raise Exception("OpenAI API密钥未配置")
                 
                 # 设置超时
-                import asyncio
                 llm_plans = await asyncio.wait_for(
                     self._generate_plans_with_llm(processed_data, plan, preferences),
                     timeout=300.0  # 300秒超时
@@ -186,6 +186,9 @@ class PlanGenerator:
         "transportation": 交通费用,
         "total": 总费用
       },
+      "weather_info": {
+        "travel_recommendations": ["基于天气的旅游建议1", "建议2"]
+      },
       "duration_days": 天数,
       "generated_at": "生成时间"
     }
@@ -243,6 +246,8 @@ class PlanGenerator:
 11. 景点选择要考虑交通便利性，优先推荐公共交通可达的景点
 12. 在daily_itineraries中要合理安排景点间的交通时间和方式
 13. 考虑不同交通方式的运营时间，避免安排超出运营时间的行程
+14. 基于天气情况在weather_info中生成实用的旅游建议
+15. 旅游建议要具体实用，如穿衣建议、活动安排、注意事项等
 
 请直接返回JSON格式的结果，不要添加任何其他文本。
 """
@@ -295,6 +300,20 @@ class PlanGenerator:
                 
                 # 关键：用真实交通数据校准LLM输出，避免距离/时长被编造
                 self._enforce_transportation_from_data(validated_plans, processed_data)
+                
+                # 为每个方案添加原始天气数据
+                weather_data = processed_data.get('weather', {})
+                for plan_data in validated_plans:
+                    if 'weather_info' in plan_data:
+                        # 保留LLM生成的旅游建议，添加原始天气数据
+                        plan_data['weather_info']['raw_data'] = weather_data
+                    else:
+                        # 如果LLM没有生成weather_info，创建一个
+                        plan_data['weather_info'] = {
+                            'raw_data': weather_data,
+                            'travel_recommendations': ["建议根据当地天气情况合理安排行程"]
+                        }
+                
                 return validated_plans
                 
             except json.JSONDecodeError as e:
@@ -321,6 +340,20 @@ class PlanGenerator:
                                 validated_plans.append(plan_data)
                         
                         self._enforce_transportation_from_data(validated_plans, processed_data)
+                        
+                        # 为每个方案添加原始天气数据
+                        weather_data = processed_data.get('weather', {})
+                        for plan_data in validated_plans:
+                            if 'weather_info' in plan_data:
+                                # 保留LLM生成的旅游建议，添加原始天气数据
+                                plan_data['weather_info']['raw_data'] = weather_data
+                            else:
+                                # 如果LLM没有生成weather_info，创建一个
+                                plan_data['weather_info'] = {
+                                    'raw_data': weather_data,
+                                    'travel_recommendations': ["建议根据当地天气情况合理安排行程"]
+                                }
+                        
                         return validated_plans
                     except json.JSONDecodeError:
                         pass
@@ -520,6 +553,62 @@ class PlanGenerator:
         
         return ', '.join(info_parts) if info_parts else "暂无路况信息"
     
+    def _format_weather_info(self, weather_data: Dict[str, Any]) -> Dict[str, Any]:
+        """格式化天气信息"""
+        if not weather_data:
+            return {
+                "raw_data": {},
+                "travel_recommendations": ["暂无天气数据，建议出行前查看最新天气预报"]
+            }
+        
+        # 生成基于天气的旅游建议
+        recommendations = []
+        
+        # 检查温度
+        temp = weather_data.get('temperature')
+        if temp:
+            if isinstance(temp, (int, float)):
+                if temp < 10:
+                    recommendations.append("气温较低，建议穿着保暖衣物，携带外套")
+                elif temp > 30:
+                    recommendations.append("气温较高，建议穿着轻薄透气衣物，注意防晒")
+                else:
+                    recommendations.append("气温适宜，建议穿着舒适的休闲服装")
+        
+        # 检查天气状况
+        weather_desc = weather_data.get('weather', '').lower()
+        if '雨' in weather_desc or 'rain' in weather_desc:
+            recommendations.append("有降雨，建议携带雨具，选择室内景点或有遮蔽的活动")
+        elif '雪' in weather_desc or 'snow' in weather_desc:
+            recommendations.append("有降雪，注意保暖防滑，选择适合雪天的活动")
+        elif '晴' in weather_desc or 'sunny' in weather_desc:
+            recommendations.append("天气晴朗，适合户外活动和观光，注意防晒")
+        elif '云' in weather_desc or 'cloud' in weather_desc:
+            recommendations.append("多云天气，适合各种户外活动，光线柔和适合拍照")
+        
+        # 检查湿度
+        humidity = weather_data.get('humidity')
+        if humidity and isinstance(humidity, (int, float)):
+            if humidity > 80:
+                recommendations.append("湿度较高，建议选择透气性好的衣物")
+            elif humidity < 30:
+                recommendations.append("湿度较低，注意补水保湿")
+        
+        # 检查风力
+        wind_speed = weather_data.get('wind_speed')
+        if wind_speed and isinstance(wind_speed, (int, float)):
+            if wind_speed > 20:
+                recommendations.append("风力较大，户外活动时注意安全，避免高空项目")
+        
+        # 如果没有生成任何建议，添加默认建议
+        if not recommendations:
+            recommendations.append("建议根据当地天气情况合理安排行程")
+        
+        return {
+            "raw_data": weather_data,
+            "travel_recommendations": recommendations
+        }
+    
     async def _generate_single_plan(
         self,
         processed_data: Dict[str, Any],
@@ -556,6 +645,9 @@ class PlanGenerator:
                 flight, hotel, daily_itineraries, restaurants
             )
             
+            # 获取天气信息
+            weather_info = self._format_weather_info(processed_data.get("weather", {}))
+            
             plan_data = {
                 "id": f"plan_{plan_index}",
                 "type": plan_type,
@@ -567,6 +659,7 @@ class PlanGenerator:
                 "restaurants": restaurants,
                 "transportation": transportation,
                 "total_cost": total_cost,
+                "weather_info": weather_info,
                 "duration_days": plan.duration_days,
                 "generated_at": datetime.utcnow().isoformat()
             }
