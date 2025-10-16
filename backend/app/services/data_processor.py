@@ -236,6 +236,7 @@ class DataProcessor:
             "hotels": ["name", "address", "price_per_night"],
             "attractions": ["name", "category", "rating"],
             "restaurants": ["name", "cuisine_type", "rating"],
+            "weather": ["date", "temperature", "condition"],
             "transportation": ["type", "name", "price"]
         }
         return field_map.get(data_type, [])

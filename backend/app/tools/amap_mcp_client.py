@@ -351,6 +351,178 @@ class AmapMCPClient:
         }
         return type_mapping.get(category, "110000")
     
+    async def get_weather(self, city: str, extensions: str = "all") -> Dict[str, Any]:
+        """获取天气信息"""
+        try:
+            if not self.api_key:
+                logger.warning("高德地图API密钥未配置")
+                return {}
+            
+            # 构建 MCP 请求
+            mcp_request = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "weather_query",
+                "params": {
+                    "city": city,
+                    "extensions": extensions
+                }
+            }
+            
+            if self.mode == "sse":
+                return await self._get_weather_sse(mcp_request)
+            else:
+                return await self._get_weather_http(mcp_request)
+                
+        except Exception as e:
+            logger.error(f"获取高德地图天气信息失败: {e}")
+            return {}
+    
+    async def _get_weather_http(self, mcp_request: Dict[str, Any]) -> Dict[str, Any]:
+        """使用 HTTP 方式获取天气信息"""
+        try:
+            response = await self.http_client.post(
+                self.base_url,
+                json=mcp_request,
+                headers={"Content-Type": "application/json"}
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            if result.get("error"):
+                logger.error(f"高德地图天气MCP错误: {result['error']}")
+                return {}
+            
+            return self._parse_weather_response(result.get("result", {}))
+            
+        except Exception as e:
+            logger.error(f"高德地图HTTP天气查询失败: {e}")
+            return {}
+    
+    async def _get_weather_sse(self, mcp_request: Dict[str, Any]) -> Dict[str, Any]:
+        """使用 SSE 方式获取天气信息"""
+        try:
+            async with self.http_client.stream(
+                "POST",
+                self.base_url,
+                json=mcp_request,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "text/event-stream"
+                }
+            ) as response:
+                response.raise_for_status()
+                
+                result_data = {}
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        try:
+                            data = json.loads(line[6:])
+                            if data.get("id") == 1:
+                                result_data = data.get("result", {})
+                                break
+                        except json.JSONDecodeError:
+                            continue
+                
+                return self._parse_weather_response(result_data)
+                
+        except Exception as e:
+            logger.error(f"高德地图SSE天气查询失败: {e}")
+            return {}
+    
+    def _parse_weather_response(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """解析天气响应"""
+        try:
+            weather_data = {
+                "location": "",
+                "forecast": [],
+                "recommendations": []
+            }
+            
+            # 解析实况天气
+            lives = result.get("lives", [])
+            if lives:
+                live_weather = lives[0]
+                weather_data["location"] = live_weather.get("city", "")
+                weather_data["current"] = {
+                    "weather": live_weather.get("weather", ""),
+                    "temperature": live_weather.get("temperature", ""),
+                    "humidity": live_weather.get("humidity", ""),
+                    "wind_direction": live_weather.get("winddirection", ""),
+                    "wind_power": live_weather.get("windpower", ""),
+                    "report_time": live_weather.get("reporttime", "")
+                }
+            
+            # 解析预报天气
+            forecasts = result.get("forecasts", [])
+            if forecasts:
+                forecast_data = forecasts[0]
+                weather_data["location"] = forecast_data.get("city", "")
+                
+                casts = forecast_data.get("casts", [])
+                for cast in casts:
+                    forecast_item = {
+                        "date": cast.get("date", ""),
+                        "week": cast.get("week", ""),
+                        "dayweather": cast.get("dayweather", ""),
+                        "nightweather": cast.get("nightweather", ""),
+                        "daytemp": cast.get("daytemp", ""),
+                        "nighttemp": cast.get("nighttemp", ""),
+                        "daywind": cast.get("daywind", ""),
+                        "nightwind": cast.get("nightwind", ""),
+                        "daypower": cast.get("daypower", ""),
+                        "nightpower": cast.get("nightpower", "")
+                    }
+                    weather_data["forecast"].append(forecast_item)
+                
+                # 生成天气建议
+                if casts:
+                    weather_data["recommendations"] = self._generate_weather_recommendations(casts)
+            
+            logger.info(f"解析高德地图天气数据成功: {weather_data['location']}")
+            return weather_data
+            
+        except Exception as e:
+            logger.error(f"解析高德地图天气响应失败: {e}")
+            return {}
+    
+    def _generate_weather_recommendations(self, casts: List[Dict[str, Any]]) -> List[str]:
+        """根据天气预报生成建议"""
+        recommendations = []
+        
+        try:
+            if not casts:
+                return recommendations
+            
+            # 分析未来几天的天气
+            for cast in casts[:3]:  # 分析前3天
+                day_weather = cast.get("dayweather", "")
+                day_temp = int(cast.get("daytemp", 0)) if cast.get("daytemp", "").isdigit() else 0
+                night_temp = int(cast.get("nighttemp", 0)) if cast.get("nighttemp", "").isdigit() else 0
+                
+                # 温度建议
+                if day_temp > 30:
+                    recommendations.append("气温较高，建议穿着轻薄透气的衣物，注意防晒")
+                elif day_temp < 10:
+                    recommendations.append("气温较低，建议穿着保暖衣物")
+                
+                # 天气建议
+                if "雨" in day_weather:
+                    recommendations.append("有降雨，建议携带雨具")
+                elif "雪" in day_weather:
+                    recommendations.append("有降雪，注意保暖和路面湿滑")
+                elif "晴" in day_weather:
+                    recommendations.append("天气晴朗，适合户外活动")
+            
+            # 去重
+            recommendations = list(set(recommendations))
+            
+        except Exception as e:
+            logger.warning(f"生成天气建议失败: {e}")
+        
+        return recommendations
+    
     async def close(self):
         """关闭HTTP客户端"""
         await self.http_client.aclose()

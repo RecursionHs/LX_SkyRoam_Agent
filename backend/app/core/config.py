@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # 服务器配置
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = os.getenv("PORT", 8000)
-    ALLOWED_HOSTS: List[str] = os.getenv("ALLOWED_HOSTS", ["*"]).split(",")
+    ALLOWED_HOSTS: List[str] = os.getenv("ALLOWED_HOSTS", "*").split(",") if isinstance(os.getenv("ALLOWED_HOSTS", "*"), str) else ["*"]
     
     # 数据库配置
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:123456@localhost:5432/skyroam")
@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     
     # 餐厅数据源配置
     RESTAURANT_DATA_SOURCE: str = os.getenv("RESTAURANT_DATA_SOURCE", "amap")  # 餐厅数据源: "baidu" 或 "amap" 或 "both"
+    
+    # 天气数据源配置
+    WEATHER_DATA_SOURCE: str = os.getenv("WEATHER_DATA_SOURCE", "amap")  # 天气数据源: "baidu" 或 "amap" 或 "openweather"
     
     # 高德地图MCP服务配置
     AMAP_MCP_MODE: str = os.getenv("AMAP_MCP_MODE", "http")  # 高德地图MCP模式: "http" 或 "sse"

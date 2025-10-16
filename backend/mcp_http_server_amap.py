@@ -108,6 +108,18 @@ class AmapMCPHTTPServer:
                     },
                     'required': ['location']
                 }
+            },
+            {
+                'name': 'weather_query',
+                'description': '天气查询 - 获取指定城市的天气信息',
+                'inputSchema': {
+                    'type': 'object',
+                    'properties': {
+                        'city': {'type': 'string', 'description': '城市编码(adcode)或城市名称'},
+                        'extensions': {'type': 'string', 'description': '返回结果控制，可选值：base(返回实况天气)、all(返回预报天气)，默认base'}
+                    },
+                    'required': ['city']
+                }
             }
         ]
         return web.json_response({'tools': tools})
@@ -139,6 +151,8 @@ class AmapMCPHTTPServer:
                 result = await self.geocode_address(params)
             elif method == 'reverse_geocode':
                 result = await self.reverse_geocode(params)
+            elif method == 'weather_query':
+                result = await self.get_weather(params)
             else:
                 return web.json_response({
                     'jsonrpc': '2.0',
@@ -154,9 +168,14 @@ class AmapMCPHTTPServer:
             
         except Exception as e:
             logger.error(f'MCP 请求处理失败: {e}')
+            # 安全获取request_id，避免data变量未绑定的问题
+            try:
+                request_id = data.get('id') if 'data' in locals() and data else None
+            except:
+                request_id = None
             return web.json_response({
                 'jsonrpc': '2.0',
-                'id': data.get('id') if 'data' in locals() else None,
+                'id': request_id,
                 'error': {'code': -32603, 'message': str(e)}
             })
     
@@ -271,7 +290,8 @@ class AmapMCPHTTPServer:
             'walking': f'{base_url}/direction/walking',
             'place_search': f'{base_url}/place/text',
             'geocode': f'{base_url}/geocode/geo',
-            'reverse_geocode': f'{base_url}/geocode/regeo'
+            'reverse_geocode': f'{base_url}/geocode/regeo',
+            'weather': f'{base_url}/weather/weatherInfo'
         }
         
         url = api_urls.get(api_type)
@@ -288,17 +308,17 @@ class AmapMCPHTTPServer:
                 if response.status == 200:
                     # 获取 JSON 响应
                     result = await response.json()
-                    logger.info(f'高德地图API响应: {json.dumps(result, ensure_ascii=False)[:500]}...')
+                    logger.info(f'[{api_type}] 高德地图API响应: {json.dumps(result, ensure_ascii=False)[:500]}...')
                     
                     # 检查响应状态
                     if result.get('status') == '1':
                         return result
                     else:
-                        raise Exception(f'高德地图API错误: {result.get("info", "未知错误")}')
+                        raise Exception(f'[{api_type}] 高德地图API错误: {result.get("info", "未知错误")}')
                 else:
-                    raise Exception(f'HTTP请求失败: {response.status}')
+                    raise Exception(f'[{api_type}] HTTP请求失败: {response.status}')
         except Exception as e:
-            logger.error(f'调用高德地图API失败: {e}')
+            logger.error(f'[{api_type}] 调用高德地图API失败: {e}')
             raise
     
     async def search_places(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -360,6 +380,72 @@ class AmapMCPHTTPServer:
         except Exception as e:
             logger.error(f'逆地理编码失败: {e}')
             raise Exception(f'无法进行逆地理编码: {e}')
+    
+    async def get_weather(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """天气查询 - 获取指定城市的天气信息"""
+        city = params.get('city')
+        extensions = params.get('extensions', 'base')
+        
+        if not city:
+            raise ValueError('缺少城市参数')
+        
+        # 如果输入的是城市名称而不是城市编码，需要先进行地理编码获取adcode
+        try:
+            # 检查是否是纯数字的城市编码格式
+            if not city.isdigit():
+                logger.info(f'城市名称需要地理编码: {city}')
+                geocode_result = await self.geocode_address({'address': city})
+                if geocode_result.get('status') == '1' and geocode_result.get('geocodes'):
+                    city = geocode_result['geocodes'][0]['adcode']
+                    logger.info(f'城市地理编码成功，获取adcode: {city}')
+                else:
+                    raise Exception(f'城市地理编码失败: {city}')
+            
+            logger.info(f'查询天气，城市编码: {city}, 扩展信息: {extensions}')
+            
+            # 调用真实的高德地图天气API
+            result = await self.call_amap_api('weather', {
+                'city': city,
+                'extensions': extensions
+            })
+            
+            # 关键日志：天气返回的核心信息
+            try:
+                if extensions == 'base':
+                    # 实况天气
+                    lives = result.get('lives', [])
+                    if lives:
+                        weather_info = lives[0]
+                        logger.info(
+                            f"[AMap Weather] city={weather_info.get('city')} "
+                            f"weather={weather_info.get('weather')} "
+                            f"temperature={weather_info.get('temperature')}°C "
+                            f"humidity={weather_info.get('humidity')}% "
+                            f"wind={weather_info.get('winddirection')}{weather_info.get('windpower')} "
+                            f"reporttime={weather_info.get('reporttime')}"
+                        )
+                    else:
+                        logger.info(f"[AMap Weather] city={city} 无实况天气数据")
+                else:
+                    # 预报天气
+                    forecasts = result.get('forecasts', [])
+                    if forecasts:
+                        forecast_info = forecasts[0]
+                        casts = forecast_info.get('casts', [])
+                        logger.info(
+                            f"[AMap Weather] city={forecast_info.get('city')} "
+                            f"forecasts={len(casts)}天 "
+                            f"reporttime={forecast_info.get('reporttime')}"
+                        )
+                    else:
+                        logger.info(f"[AMap Weather] city={city} 无预报天气数据")
+            except Exception as log_e:
+                logger.warning(f"天气关键日志生成失败: {log_e}")
+            
+            return result
+        except Exception as e:
+            logger.error(f'调用高德地图天气API失败: {e}')
+            raise Exception(f'无法获取天气信息: {e}')
     
     async def start(self):
         """启动服务器"""

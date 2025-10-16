@@ -229,21 +229,59 @@ class DataCollector:
             
             weather_data = {}
             
-            # 优先使用内置百度地图功能
-            # 暂时禁用百度地图天气API调用，等待正确的接口
-            logger.info(f"天气API暂时禁用，跳过百度地图天气数据收集: {destination}")
+            # 根据环境变量配置选择天气数据源
+            weather_source = settings.WEATHER_DATA_SOURCE.lower()
+            logger.info(f"使用天气数据源: {weather_source}")
             
-            # 如果百度地图数据不足，使用MCP工具补充
-            if not weather_data:
+            if weather_source == "amap":
+                # 使用高德地图天气API
+                try:
+                    weather_data = await self.amap_client.get_weather(
+                        city=destination,
+                        extensions="all"  # 获取预报天气
+                    )
+                    if weather_data:
+                        logger.info(f"从高德地图获取到天气数据: {destination}")
+                    else:
+                        logger.warning(f"高德地图未返回天气数据: {destination}")
+                except Exception as e:
+                    logger.warning(f"高德地图天气服务调用失败: {e}")
+                    
+            elif weather_source == "baidu":
+                # 使用百度地图天气API
+                try:
+                    # 暂时禁用百度地图天气API调用，等待正确的接口
+                    logger.info(f"百度地图天气API暂时禁用，跳过天气数据收集: {destination}")
+                except Exception as e:
+                    logger.warning(f"百度地图天气服务调用失败: {e}")
+                    
+            elif weather_source == "openweather":
+                # 使用OpenWeather API (通过MCP客户端)
                 try:
                     weather_data = await self.mcp_client.get_weather(
                         destination=destination,
                         start_date=start_date.date(),
                         end_date=end_date.date()
                     )
-                    logger.info(f"从MCP服务获取到天气数据: {destination}")
+                    if weather_data:
+                        logger.info(f"从OpenWeather获取到天气数据: {destination}")
+                    else:
+                        logger.warning(f"OpenWeather未返回天气数据: {destination}")
                 except Exception as e:
-                    logger.warning(f"MCP天气服务调用失败: {e}")
+                    logger.warning(f"OpenWeather天气服务调用失败: {e}")
+            
+            # 如果主要数据源失败，尝试备用数据源
+            if not weather_data and weather_source != "amap":
+                try:
+                    logger.info(f"主要天气数据源失败，尝试高德地图备用数据源: {destination}")
+                    weather_data = await self.amap_client.get_weather(
+                        city=destination,
+                        extensions="all"
+                    )
+                    if weather_data:
+                        logger.info(f"从高德地图备用数据源获取到天气数据: {destination}")
+                except Exception as e:
+                    logger.warning(f"高德地图备用天气服务调用失败: {e}")
             
             # 如果仍然没有数据，返回空字典
             if not weather_data:

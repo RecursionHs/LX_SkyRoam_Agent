@@ -36,6 +36,7 @@ def collect_destination_data_task(destination: str):
                     "hotels": len(data.get("hotels", [])),
                     "attractions": len(data.get("attractions", [])),
                     "restaurants": len(data.get("restaurants", [])),
+                    "weather": len(data.get("weather", [])),
                     "transportation": len(data.get("transportation", []))
                 }
             }
