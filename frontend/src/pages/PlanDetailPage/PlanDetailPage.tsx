@@ -10,12 +10,12 @@ import {
   Tag,
   List,
   Avatar,
-  Progress,
   Divider,
   Alert,
   Spin,
   Modal,
-  Rate
+  Rate,
+  Image
 } from 'antd';
 import { 
   CalendarOutlined, 
@@ -26,14 +26,17 @@ import {
   ExportOutlined,
   ShareAltOutlined,
   EditOutlined,
-  HeartOutlined,
   CloudOutlined,
-  ThunderboltOutlined
+  ThunderboltOutlined,
+  PhoneOutlined,
+  PictureOutlined,
+  ShopOutlined,
+  TagOutlined
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
 
-const { Title, Paragraph, Text } = Typography;
+const { Title, Text } = Typography;
 const { TabPane } = Tabs;
 
 interface PlanDetail {
@@ -133,6 +136,58 @@ const PlanDetailPage: React.FC = () => {
   }
 
   const currentPlan = planDetail.generated_plans?.[selectedPlanIndex];
+
+  // 格式化餐厅图片URL
+  const formatRestaurantImage = (photos: any): string | undefined => {
+    if (!photos || !Array.isArray(photos) || photos.length === 0) {
+      return undefined;
+    }
+    
+    const firstPhoto = photos[0];
+    
+    // 如果是对象，提取url属性
+    if (typeof firstPhoto === 'object' && firstPhoto.url) {
+      return firstPhoto.url;
+    }
+    
+    // 如果是字符串且是完整的URL，直接返回
+    if (typeof firstPhoto === 'string' && firstPhoto.startsWith('http')) {
+      return firstPhoto;
+    }
+    
+    // 如果是字符串但是相对路径，添加基础URL
+    if (typeof firstPhoto === 'string') {
+      return `https://example.com${firstPhoto}`;
+    }
+    
+    return undefined;
+  };
+
+  // 格式化价格信息
+  const formatPrice = (restaurant: any): string => {
+    if (restaurant.price_range) {
+      return restaurant.price_range;
+    }
+    if (restaurant.cost) {
+      return `¥${restaurant.cost}`;
+    }
+    return '价格面议';
+  };
+
+  // 格式化距离信息
+  const formatDistance = (distance: any): string => {
+    if (!distance) return '';
+    
+    if (typeof distance === 'number') {
+      if (distance < 1000) {
+        return `${distance}m`;
+      } else {
+        return `${(distance / 1000).toFixed(1)}km`;
+      }
+    }
+    
+    return String(distance);
+  };
 
   // 安全格式化展示交通信息，避免将对象直接作为 React 子节点
   const formatTransportation = (transportation: any): React.ReactNode => {
@@ -283,17 +338,76 @@ const PlanDetailPage: React.FC = () => {
                             />
                             <Divider />
                             <Row gutter={16}>
-                              <Col span={8}>
-                                <Text type="secondary">餐饮</Text>
-                                <br />
-                                <Text>{day.meals?.map((m: any) => m.suggestion).join(', ')}</Text>
+                              <Col span={24}>
+                                <Text type="secondary">餐饮推荐</Text>
+                                <div style={{ marginTop: '8px' }}>
+                                  {day.meals && day.meals.length > 0 ? (
+                                    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                                      {day.meals.map((meal: any, mealIndex: number) => (
+                                        <Card key={mealIndex} size="small" style={{ backgroundColor: '#fafafa' }}>
+                                          <Row gutter={[8, 4]} align="middle">
+                                            <Col span={16}>
+                                              <Space direction="vertical" size={2}>
+                                                <Text strong style={{ fontSize: '13px' }}>
+                                                  {meal.name || meal.suggestion}
+                                                </Text>
+                                                {meal.category && (
+                                                  <Text type="secondary" style={{ fontSize: '11px' }}>
+                                                    {meal.category}
+                                                  </Text>
+                                                )}
+                                                {meal.address && (
+                                                  <Text 
+                                                    type="secondary" 
+                                                    style={{ 
+                                                      fontSize: '10px',
+                                                      wordBreak: 'break-all',
+                                                      whiteSpace: 'normal',
+                                                      lineHeight: '1.4'
+                                                    }}
+                                                  >
+                                                    <EnvironmentOutlined style={{ marginRight: '4px' }} /> {meal.address}
+                                                  </Text>
+                                                )}
+                                              </Space>
+                                            </Col>
+                                            <Col span={8} style={{ textAlign: 'right' }}>
+                                              <Space direction="vertical" size={2} align="end">
+                                                {meal.rating && (
+                                                  <Rate 
+                                                    disabled 
+                                                    defaultValue={meal.rating} 
+                                                    style={{ fontSize: '10px' }}
+                                                  />
+                                                )}
+                                                <Text style={{ fontSize: '11px', color: '#52c41a' }}>
+                                                   <DollarOutlined /> {formatPrice(meal)}
+                                                 </Text>
+                                                {meal.phone && (
+                                                  <Text style={{ fontSize: '10px', color: '#1890ff' }}>
+                                                    <PhoneOutlined /> {meal.phone}
+                                                  </Text>
+                                                )}
+                                              </Space>
+                                            </Col>
+                                          </Row>
+                                        </Card>
+                                      ))}
+                                    </Space>
+                                  ) : (
+                                    <Text type="secondary">暂无餐饮推荐</Text>
+                                  )}
+                                </div>
                               </Col>
-                              <Col span={8}>
+                            </Row>
+                            <Divider />
+                            <Row gutter={16}>
+                              <Col span={12}>
                                 <Text type="secondary">交通</Text>
                                 <br />
                                 <Text>{formatTransportation(day.transportation)}</Text>
                               </Col>
-                              <Col span={8}>
+                              <Col span={12}>
                                 <Text type="secondary">预计费用</Text>
                                 <br />
                                 <Text>¥{day.estimated_cost}</Text>
@@ -469,21 +583,164 @@ const PlanDetailPage: React.FC = () => {
                   )}
 
                   {/* 推荐餐厅 */}
-                  <Card title="推荐餐厅" size="small">
+                  <Card title={
+                    <Space>
+                      <ShopOutlined />
+                      <span>推荐餐厅</span>
+                    </Space>
+                  } size="small">
                     <List
                       size="small"
                       dataSource={currentPlan.restaurants}
                       renderItem={(restaurant: any) => (
-                        <List.Item>
-                          <Space>
-                            <Avatar size="small" icon={<HeartOutlined />} />
-                            <div>
-                              <Text strong>{restaurant.name}</Text>
-                              <br />
-                              <Text type="secondary">{restaurant.cuisine_type}</Text>
-                            </div>
-                            <Rate disabled defaultValue={restaurant.rating || 0} />
-                          </Space>
+                        <List.Item style={{ padding: '12px 0' }}>
+                          <Card 
+                            size="small" 
+                            style={{ width: '100%' }}
+                            bodyStyle={{ padding: '12px' }}
+                          >
+                            <Row gutter={[12, 8]} align="top">
+                              {/* 餐厅图片 */}
+                               <Col span={6}>
+                                 {formatRestaurantImage(restaurant.photos) ? (
+                                   <Image
+                                     width={60}
+                                     height={60}
+                                     src={formatRestaurantImage(restaurant.photos)}
+                                     alt={restaurant.name}
+                                     style={{ borderRadius: '6px', objectFit: 'cover' }}
+                                     fallback="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjYwIiBoZWlnaHQ9IjYwIiBmaWxsPSIjRjVGNUY1Ii8+CjxwYXRoIGQ9Ik0yMCAyMEg0MFY0MEgyMFYyMFoiIGZpbGw9IiNEOUQ5RDkiLz4KPC9zdmc+"
+                                     preview={{
+                                       mask: <PictureOutlined style={{ fontSize: '16px' }} />
+                                     }}
+                                   />
+                                 ) : (
+                                   <div 
+                                     style={{ 
+                                       width: 60, 
+                                       height: 60, 
+                                       backgroundColor: '#f5f5f5', 
+                                       borderRadius: '6px',
+                                       display: 'flex',
+                                       alignItems: 'center',
+                                       justifyContent: 'center'
+                                     }}
+                                   >
+                                     <PictureOutlined style={{ color: '#ccc', fontSize: '20px' }} />
+                                   </div>
+                                 )}
+                               </Col>
+                              
+                              {/* 餐厅基本信息 */}
+                              <Col span={18}>
+                                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                                  {/* 餐厅名称和评分 */}
+                                  <Row justify="space-between" align="middle">
+                                    <Col>
+                                      <Text strong style={{ fontSize: '14px' }}>
+                                        {restaurant.name}
+                                      </Text>
+                                    </Col>
+                                    <Col>
+                                      <Space size={4}>
+                                        <Rate 
+                                          disabled 
+                                          defaultValue={restaurant.rating || 0} 
+                                          style={{ fontSize: '12px' }}
+                                        />
+                                        <Text style={{ fontSize: '12px', color: '#666' }}>
+                                          {restaurant.rating ? restaurant.rating.toFixed(1) : 'N/A'}
+                                        </Text>
+                                      </Space>
+                                    </Col>
+                                  </Row>
+                                  
+                                  {/* 菜系类型和价格范围 */}
+                                  <Row justify="space-between" align="middle">
+                                    <Col>
+                                      <Space size={4}>
+                                        <TagOutlined style={{ fontSize: '12px', color: '#666' }} />
+                                        <Text type="secondary" style={{ fontSize: '12px' }}>
+                                          {restaurant.cuisine_type || restaurant.category || '餐厅'}
+                                        </Text>
+                                      </Space>
+                                    </Col>
+                                    <Col>
+                                       <Space size={4}>
+                                         <DollarOutlined style={{ fontSize: '12px', color: '#52c41a' }} />
+                                         <Text style={{ fontSize: '12px', color: '#52c41a' }}>
+                                           {formatPrice(restaurant)}
+                                         </Text>
+                                       </Space>
+                                     </Col>
+                                  </Row>
+                                  
+                                  {/* 地址信息 */}
+                                  {restaurant.address && (
+                                    <Row>
+                                      <Col span={24}>
+                                        <Space size={4} align="start">
+                                          <EnvironmentOutlined style={{ fontSize: '12px', color: '#666', marginTop: '2px' }} />
+                                          <Text 
+                                            type="secondary" 
+                                            style={{ 
+                                              fontSize: '11px',
+                                              wordBreak: 'break-all',
+                                              whiteSpace: 'normal',
+                                              lineHeight: '1.4'
+                                            }}
+                                          >
+                                            {restaurant.address}
+                                          </Text>
+                                        </Space>
+                                      </Col>
+                                    </Row>
+                                  )}
+                                  
+                                  {/* 电话和距离 */}
+                                  <Row justify="space-between" align="middle">
+                                    {restaurant.phone && (
+                                      <Col>
+                                        <Space size={4}>
+                                          <PhoneOutlined style={{ fontSize: '12px', color: '#1890ff' }} />
+                                          <Text style={{ fontSize: '11px', color: '#1890ff' }}>
+                                            {restaurant.phone}
+                                          </Text>
+                                        </Space>
+                                      </Col>
+                                    )}
+                                    {restaurant.distance && (
+                                       <Col>
+                                         <Text type="secondary" style={{ fontSize: '11px' }}>
+                                           距离: {formatDistance(restaurant.distance)}
+                                         </Text>
+                                       </Col>
+                                     )}
+                                  </Row>
+                                  
+                                  {/* 营业区域和标签 */}
+                                  {(restaurant.business_area || restaurant.tags) && (
+                                    <Row>
+                                      <Col span={24}>
+                                        <Space size={4} wrap>
+                                          {restaurant.business_area && (
+                                            <Tag color="blue" style={{ fontSize: '11px' }}>
+                                               {restaurant.business_area}
+                                             </Tag>
+                                          )}
+                                          {restaurant.tags && restaurant.tags.slice(0, 2).map((tag: string, index: number) => (
+                                            <Tag key={index} color="default" style={{ fontSize: '11px' }}>
+                                               {tag}
+                                             </Tag>
+                                          ))}
+                                        </Space>
+                                      </Col>
+                                    </Row>
+                                  )}
+                                </Space>
+                              </Col>
+                            </Row>
+                          </Card>
                         </List.Item>
                       )}
                     />
