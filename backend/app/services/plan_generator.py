@@ -160,22 +160,11 @@ class PlanGenerator:
         {
           "type": "交通方式",
           "name": "交通名称",
-          "description": "描述",
-          "route": "具体路线",
+          "description": "简要描述",
           "duration": "耗时(分钟)",
           "distance": "距离(公里)",
           "price": "费用(元)",
-          "currency": "货币",
-          "operating_hours": "运营时间",
-          "frequency": "发车频率",
-          "coverage": ["覆盖区域"],
-          "features": ["特色功能"],
-          "traffic_conditions": {
-            "congestion_level": "拥堵程度",
-            "road_conditions": ["道路状况"],
-            "real_time": true
-          },
-          "source": "数据来源"
+          "operating_hours": "运营时间"
         }
       ],
       "total_cost": {
