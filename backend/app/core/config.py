@@ -98,6 +98,11 @@ class Settings(BaseSettings):
     # 日志配置
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     LOG_FILE: str = os.getenv("LOG_FILE", "logs/app.log")
+    LOG_MAX_SIZE: str = os.getenv("LOG_MAX_SIZE", "10 MB")  # 单个日志文件最大大小
+    LOG_RETENTION: int = int(os.getenv("LOG_RETENTION", "5"))  # 保留的日志文件数量
+    LOG_COMPRESSION: str = os.getenv("LOG_COMPRESSION", "zip")  # 日志压缩格式
+    LOG_TO_CONSOLE: bool = os.getenv("LOG_TO_CONSOLE", True)  # 是否输出到控制台
+    LOG_TO_FILE: bool = os.getenv("LOG_TO_FILE", True)  # 是否输出到文件
 
     # 缓存配置
     CACHE_TTL: int = os.getenv("CACHE_TTL", 3600)  # 1小时

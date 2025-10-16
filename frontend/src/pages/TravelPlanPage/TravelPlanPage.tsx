@@ -13,7 +13,9 @@ import {
   Steps,
   Alert,
   Spin,
-  Progress
+  Progress,
+  InputNumber,
+  Checkbox
 } from 'antd';
 import { 
   SearchOutlined, 
@@ -21,7 +23,9 @@ import {
   CalendarOutlined,
   DollarOutlined,
   CheckCircleOutlined,
-  LoadingOutlined
+  LoadingOutlined,
+  UserOutlined,
+  HeartOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -31,6 +35,7 @@ const { Title, Paragraph, Text } = Typography;
 const { RangePicker } = DatePicker;
 const { Option } = Select;
 const { Step } = Steps;
+// const { CheckboxGroup } = Checkbox; // 暂时不使用
 
 interface TravelRequest {
   departure: string;  // 出发地
@@ -40,6 +45,10 @@ interface TravelRequest {
   preferences: string[];
   requirements: string;
   transportation?: string;  // 出行方式（可选）
+  travelers: number;  // 出行人数
+  foodPreferences: string[];  // 口味偏好
+  dietaryRestrictions: string[];  // 忌口/饮食限制
+  ageGroups: string[];  // 年龄组成
 }
 
 const TravelPlanPage: React.FC = () => {
@@ -124,8 +133,18 @@ const TravelPlanPage: React.FC = () => {
           duration_days: values.dateRange[1].diff(values.dateRange[0], 'day') + 1,
           budget: values.budget,
           transportation: values.transportation,
-          preferences: { interests: values.preferences },
-          requirements: { special_requirements: values.requirements },
+          preferences: { 
+            interests: values.preferences,
+            travelers: values.travelers,
+            food_preferences: values.foodPreferences,
+            dietary_restrictions: values.dietaryRestrictions,
+            age_groups: values.ageGroups
+          },
+          requirements: { 
+            special_requirements: values.requirements,
+            travelers_count: values.travelers,
+            dietary_info: values.dietaryRestrictions?.join(', ') || ''
+          },
           user_id: 1 // 临时用户ID
         }),
       });
@@ -167,7 +186,11 @@ const TravelPlanPage: React.FC = () => {
         body: JSON.stringify({
           preferences: {
             budget_priority: preferences.budget < 3000 ? 'low' : 'medium',
-            activity_preference: (preferences.preferences && preferences.preferences[0]) || 'culture'
+            activity_preference: (preferences.preferences && preferences.preferences[0]) || 'culture',
+            travelers_count: preferences.travelers,
+            food_preferences: preferences.foodPreferences,
+            dietary_restrictions: preferences.dietaryRestrictions,
+            age_groups: preferences.ageGroups
           },
           requirements: preferences.requirements,
           num_plans: 3
@@ -366,6 +389,12 @@ const TravelPlanPage: React.FC = () => {
             layout="vertical"
             onFinish={handleSubmit}
             size="large"
+            initialValues={{
+              travelers: 2,
+              foodPreferences: [],
+              dietaryRestrictions: [],
+              ageGroups: []
+            }}
           >
             <Row gutter={[24, 16]}>
               <Col xs={24} sm={12}>
@@ -396,7 +425,6 @@ const TravelPlanPage: React.FC = () => {
             </Row>
             
             <Row gutter={[24, 16]}>
-              
               <Col xs={24} sm={12}>
                 <Form.Item
                   name="dateRange"
@@ -406,6 +434,23 @@ const TravelPlanPage: React.FC = () => {
                   <RangePicker 
                     style={{ width: '100%' }}
                     placeholder={['出发日期', '返回日期']}
+                  />
+                </Form.Item>
+              </Col>
+              
+              <Col xs={24} sm={12}>
+                <Form.Item
+                  name="travelers"
+                  label="出行人数"
+                  rules={[{ required: true, message: '请选择出行人数' }]}
+                >
+                  <InputNumber
+                    min={1}
+                    max={200}
+                    style={{ width: '100%' }}
+                    placeholder="请输入出行人数"
+                    prefix={<UserOutlined />}
+                    addonAfter="人"
                   />
                 </Form.Item>
               </Col>
@@ -442,7 +487,9 @@ const TravelPlanPage: React.FC = () => {
                   </Select>
                 </Form.Item>
               </Col>
-              
+            </Row>
+
+            <Row gutter={[24, 16]}>
               <Col xs={24} sm={12}>
                 <Form.Item name="preferences" label="旅行偏好">
                   <Select 
@@ -459,11 +506,73 @@ const TravelPlanPage: React.FC = () => {
                   </Select>
                 </Form.Item>
               </Col>
+
+              <Col xs={24} sm={12}>
+                <Form.Item name="ageGroups" label="年龄组成">
+                  <Select 
+                    mode="multiple" 
+                    placeholder="选择出行人员年龄组成"
+                    allowClear
+                  >
+                    <Option value="infant">婴幼儿（0-2岁）</Option>
+                    <Option value="child">儿童（3-12岁）</Option>
+                    <Option value="teenager">青少年（13-17岁）</Option>
+                    <Option value="adult">成人（18-59岁）</Option>
+                    <Option value="senior">老年人（60岁以上）</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={[24, 16]}>
+              <Col xs={24} sm={12}>
+                <Form.Item name="foodPreferences" label="口味偏好">
+                  <Select 
+                    mode="multiple" 
+                    placeholder="选择您的口味偏好"
+                    allowClear
+                  >
+                    <Option value="spicy">辣味</Option>
+                    <Option value="sweet">甜味</Option>
+                    <Option value="sour">酸味</Option>
+                    <Option value="light">清淡</Option>
+                    <Option value="heavy">重口味</Option>
+                    <Option value="seafood">海鲜</Option>
+                    <Option value="meat">肉类</Option>
+                    <Option value="vegetarian">素食</Option>
+                    <Option value="local">当地特色</Option>
+                    <Option value="international">国际美食</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+
+              <Col xs={24} sm={12}>
+                <Form.Item name="dietaryRestrictions" label="忌口/饮食限制">
+                  <Select 
+                    mode="multiple" 
+                    placeholder="选择忌口或饮食限制"
+                    allowClear
+                  >
+                    <Option value="no_pork">不吃猪肉</Option>
+                    <Option value="no_beef">不吃牛肉</Option>
+                    <Option value="no_seafood">不吃海鲜</Option>
+                    <Option value="no_spicy">不吃辣</Option>
+                    <Option value="vegetarian">素食主义</Option>
+                    <Option value="vegan">严格素食</Option>
+                    <Option value="halal">清真食品</Option>
+                    <Option value="kosher">犹太洁食</Option>
+                    <Option value="gluten_free">无麸质</Option>
+                    <Option value="lactose_free">无乳糖</Option>
+                    <Option value="nut_allergy">坚果过敏</Option>
+                    <Option value="diabetes">糖尿病饮食</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
             </Row>
             
             <Form.Item name="requirements" label="特殊要求">
               <Input.TextArea 
-                placeholder="请输入特殊要求（如：带老人、带小孩、无障碍设施等）"
+                placeholder="请输入特殊要求（如：带老人、带小孩、无障碍设施、特殊饮食需求等）"
                 rows={3}
               />
             </Form.Item>

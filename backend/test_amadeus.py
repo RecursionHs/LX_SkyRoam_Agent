@@ -52,9 +52,9 @@ async def test_amadeus_integration():
     
     # 测试城市代码映射
     print("\n4. 测试城市代码映射...")
-    test_cities = ["北京", "上海", "广州", "深圳", "纽约", "伦敦", "巴黎", "东京"]
+    test_cities = ["北京", "上海", "广州", "深圳", "纽约", "伦敦", "巴黎", "东京", "连云港", "西湖"]
     for city in test_cities:
-        code = client._get_city_code(city)
+        code = await client.get_city_code(city)
         print(f"  {city} -> {code}")
     
     # 测试航班搜索

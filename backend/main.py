@@ -10,18 +10,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
-from loguru import logger
 from dotenv import load_dotenv
 
 # 加载环境变量
 env_path = Path(__file__).parent / ".env"
 if env_path.exists():
     load_dotenv(env_path)
-    logger.info(f"✅ 已加载环境变量文件: {env_path}")
+    print(f"✅ 已加载环境变量文件: {env_path}")
 else:
-    logger.warning(f"⚠️ 环境变量文件不存在: {env_path}")
+    print(f"⚠️ 环境变量文件不存在: {env_path}")
 
 from app.core.config import settings
+from app.core.logging_config import setup_logging
+
+# 初始化日志系统
+logger = setup_logging()
 from app.core.database import init_db
 from app.api.v1.api import api_router
 from app.core.redis import init_redis

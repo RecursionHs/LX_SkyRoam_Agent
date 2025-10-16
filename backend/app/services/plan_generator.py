@@ -40,7 +40,7 @@ class PlanGenerator:
                 # 设置超时
                 llm_plans = await asyncio.wait_for(
                     self._generate_plans_with_llm(processed_data, plan, preferences),
-                    timeout=300.0  # 300秒超时
+                    timeout=600.0  # 600秒超时
                 )
                 if llm_plans:
                     logger.info(f"使用LLM生成了 {len(llm_plans)} 个旅行方案")
@@ -87,6 +87,12 @@ class PlanGenerator:
             # 构建系统提示
             system_prompt = """你是一个专业的旅行规划师，擅长为游客制定详细的旅行计划。
 请根据提供的数据和用户需求，生成3-5个不同风格的旅行方案。
+
+在制定方案时，请特别注意以下要求：
+1. 人数配置：根据旅行人数合理安排住宿（房间数量、床位类型）、餐厅（用餐人数、包间需求）、交通（车辆类型、座位数）
+2. 年龄群体：针对不同年龄段的游客调整行程强度、景点选择和活动安排
+3. 饮食偏好：根据用户的口味偏好推荐合适的餐厅和菜系
+4. 饮食禁忌：严格避免推荐包含用户饮食禁忌的餐厅和食物，确保饮食安全
 
 重要：请直接返回一个包含所有方案的数组，不要嵌套在plans对象中。
 
@@ -196,6 +202,10 @@ class PlanGenerator:
 返回日期：{plan.end_date}
 预算：{plan.budget}元
 出行方式：{plan.transportation or '未指定'}
+旅行人数：{getattr(plan, 'travelers', 1)}人
+年龄群体：{', '.join(getattr(plan, 'ageGroups', [])) if getattr(plan, 'ageGroups', None) else '未指定'}
+饮食偏好：{', '.join(getattr(plan, 'foodPreferences', [])) if getattr(plan, 'foodPreferences', None) else '无特殊偏好'}
+饮食禁忌：{', '.join(getattr(plan, 'dietaryRestrictions', [])) if getattr(plan, 'dietaryRestrictions', None) else '无饮食禁忌'}
 用户偏好：{preferences or '无特殊偏好'}
 特殊要求：{plan.requirements or '无特殊要求'}
 
@@ -237,6 +247,10 @@ class PlanGenerator:
 13. 考虑不同交通方式的运营时间，避免安排超出运营时间的行程
 14. 基于天气情况在weather_info中生成实用的旅游建议
 15. 旅游建议要具体实用，如穿衣建议、活动安排、注意事项等
+16. 根据旅行人数({getattr(plan, 'travelers', 1)}人)合理安排酒店房间数量、餐厅座位、交通工具容量
+17. 针对年龄群体({', '.join(getattr(plan, 'ageGroups', [])) if getattr(plan, 'ageGroups', None) else '未指定'})调整景点选择和活动强度
+18. 严格遵守饮食禁忌({', '.join(getattr(plan, 'dietaryRestrictions', [])) if getattr(plan, 'dietaryRestrictions', None) else '无饮食禁忌'})，避免推荐相关食物
+19. 优先推荐符合饮食偏好({', '.join(getattr(plan, 'foodPreferences', [])) if getattr(plan, 'foodPreferences', None) else '无特殊偏好'})的餐厅和菜系
 
 请直接返回JSON格式的结果，不要添加任何其他文本。
 """

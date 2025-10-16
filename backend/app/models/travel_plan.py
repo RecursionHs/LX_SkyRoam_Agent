@@ -25,6 +25,12 @@ class TravelPlan(BaseModel):
     budget = Column(Float, nullable=True)
     transportation = Column(String(50), nullable=True)  # 出行方式
     
+    # 旅行者信息
+    travelers = Column(Integer, default=1, nullable=True)  # 出行人数
+    ageGroups = Column(JSON, nullable=True)  # 年龄组成
+    foodPreferences = Column(JSON, nullable=True)  # 口味偏好
+    dietaryRestrictions = Column(JSON, nullable=True)  # 饮食禁忌
+    
     # 用户偏好
     preferences = Column(JSON, nullable=True)  # 存储用户偏好设置
     requirements = Column(JSON, nullable=True)  # 存储特殊要求

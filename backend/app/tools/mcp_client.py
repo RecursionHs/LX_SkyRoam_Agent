@@ -30,6 +30,8 @@ class MCPClient:
         self.base_url = "https://api.example.com"  # 示例API地址
         self._amadeus_token = None
         self._token_expires_at = None
+        self.session = None
+        self.city_code_cache = {}  # 城市代码缓存
     
     async def get_flights(
         self, 
@@ -83,7 +85,7 @@ class MCPClient:
                 "client_secret": settings.AMADEUS_CLIENT_SECRET
             }
 
-            logger.warning(f"AMADEUS ID: {settings.AMADEUS_CLIENT_ID}， 密码: {settings.AMADEUS_CLIENT_SECRET}")
+            logger.debug(f"AMADEUS ID: {settings.AMADEUS_CLIENT_ID}， 密码: {settings.AMADEUS_CLIENT_SECRET}")
             
             headers = {
                 "Content-Type": "application/x-www-form-urlencoded"
@@ -138,9 +140,9 @@ class MCPClient:
             # Amadeus API端点
             url = f"{settings.AMADEUS_API_BASE}/v2/shopping/flight-offers"
             
-            # 获取城市代码
-            origin_code = self._get_city_code(origin)
-            destination_code = self._get_city_code(destination)
+            # 获取城市代码（使用新的智能方法）
+            origin_code = await self.get_city_code(origin)
+            destination_code = await self.get_city_code(destination)
             
             if not origin_code or not destination_code:
                 logger.error(f"无法获取城市代码: {origin} -> {destination}")
@@ -428,8 +430,95 @@ class MCPClient:
             pass
         return False
     
+
+    async def _get_city_code_with_llm(self, city: str) -> Optional[str]:
+        """使用LLM获取城市IATA代码"""
+        try:
+            # 检查缓存
+            if city in self.city_code_cache:
+                logger.info(f"从缓存获取城市代码: {city} -> {self.city_code_cache[city]}")
+                return self.city_code_cache[city]
+            
+            # 导入OpenAI客户端
+            from app.tools.openai_client import openai_client
+            
+            # 构建系统提示
+            system_prompt = """你是一个专业的航空旅行助手，专门负责识别城市名称并返回对应的IATA机场代码。
+
+IATA代码是国际航空运输协会制定的三字母机场代码，用于标识世界各地的机场。
+
+请严格按照以下规则：
+1. 只返回JSON格式的响应
+2. 如果能识别城市，返回主要机场的IATA代码
+3. 如果无法识别或不确定，返回null
+4. 对于有多个机场的城市，返回最主要的国际机场代码
+5. 确保返回的代码是标准的三字母IATA代码
+
+响应格式：
+{
+  "city": "输入的城市名称",
+  "iata_code": "三字母IATA代码或null",
+  "airport_name": "机场名称（可选）",
+  "confidence": "置信度(0-1)"
+}"""
+
+            # 构建用户提示
+            user_prompt = f"""请识别以下城市的IATA机场代码：
+
+城市名称：{city}
+
+请返回JSON格式的响应，包含IATA代码、机场名称和置信度。"""
+
+            # 调用LLM
+            response = await openai_client.generate_text(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=200,
+                temperature=0.1  # 使用较低的温度确保结果一致性
+            )
+            
+            # 解析响应
+            import json
+            try:
+                # 清理响应文本
+                cleaned_response = response.strip()
+                if cleaned_response.startswith('```json'):
+                    cleaned_response = cleaned_response[7:]
+                if cleaned_response.endswith('```'):
+                    cleaned_response = cleaned_response[:-3]
+                cleaned_response = cleaned_response.strip()
+                
+                result = json.loads(cleaned_response)
+                
+                iata_code = result.get('iata_code')
+                confidence = result.get('confidence', 0.0)
+                
+                # 验证IATA代码格式
+                if iata_code and isinstance(iata_code, str) and len(iata_code) == 3 and iata_code.isalpha():
+                    iata_code = iata_code.upper()
+                    
+                    # 只有置信度足够高才缓存和返回
+                    if confidence >= 0.8:
+                        self.city_code_cache[city] = iata_code
+                        logger.info(f"LLM识别城市代码: {city} -> {iata_code} (置信度: {confidence})")
+                        return iata_code
+                    else:
+                        logger.warning(f"LLM识别城市代码置信度较低: {city} -> {iata_code} (置信度: {confidence})")
+                        return None
+                else:
+                    logger.warning(f"LLM返回的IATA代码格式无效: {city} -> {iata_code}")
+                    return None
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"LLM响应JSON解析失败: {e}, 响应内容: {cleaned_response}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"LLM城市代码识别失败: {e}")
+            return None
+
     def _get_city_code(self, city: str) -> Optional[str]:
-        """获取城市代码"""
+        """获取城市代码（保留原有硬编码映射作为后备）"""
         city_codes = {
             # 中国大陆主要城市
             "北京": "PEK",
@@ -574,6 +663,23 @@ class MCPClient:
         
         # 如果都没有匹配，记录警告并返回None
         logger.warning(f"未找到城市 '{city}' 的IATA代码")
+        return None
+
+    async def get_city_code(self, city: str) -> Optional[str]:
+        """获取城市IATA代码（智能版本）"""
+        # 首先尝试硬编码映射（快速且可靠）
+        code = self._get_city_code(city)
+        if code:
+            return code
+        
+        # 如果硬编码映射失败，尝试使用LLM
+        logger.info(f"硬编码映射未找到 '{city}'，尝试使用LLM识别")
+        llm_code = await self._get_city_code_with_llm(city)
+        if llm_code:
+            return llm_code
+        
+        # 都失败了，返回None
+        logger.warning(f"无法识别城市 '{city}' 的IATA代码")
         return None
     
     
