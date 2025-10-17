@@ -36,6 +36,7 @@ import {
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
+import MapComponent from '../../components/MapComponent/MapComponent';
 
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
@@ -768,21 +769,19 @@ const PlanDetailPage: React.FC = () => {
                     />
                   </Card>
 
-                  {/* 地图占位 */}
-                  <Card title="目的地地图" size="small">
-                    <div style={{ 
-                      height: '200px', 
-                      width: '100%',
-                      background: '#f5f5f5',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderRadius: '6px'
-                    }}>
-                      <Text type="secondary">地图功能开发中...</Text>
-                    </div>
-                  </Card>
                 </Space>
+              </Col>
+            </Row>
+            
+            {/* 地图组件 - 独立的全宽区域 */}
+            <Row style={{ marginTop: '24px' }}>
+              <Col span={24}>
+                <MapComponent 
+                  destination={currentPlan.destination}
+                  latitude={currentPlan.selected_plan?.destination_info?.latitude || 39.9042}
+                  longitude={currentPlan.selected_plan?.destination_info?.longitude || 116.4074}
+                  title="目的地地图"
+                />
               </Col>
             </Row>
           </TabPane>

@@ -34,6 +34,10 @@ export const API_ENDPOINTS = {
   OPENAI_CONFIG: '/openai/config',
   OPENAI_TEST: '/openai/test',
   
+  // 地图
+  MAP_STATIC: '/map/static',
+  MAP_HEALTH: '/map/health',
+  
   // 健康检查
   HEALTH: '/health'
 };
