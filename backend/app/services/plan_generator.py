@@ -24,11 +24,15 @@ class PlanGenerator:
         self, 
         processed_data: Dict[str, Any], 
         plan: Any,
-        preferences: Optional[Dict[str, Any]] = None
+        preferences: Optional[Dict[str, Any]] = None,
+        raw_data: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """生成多个旅行方案"""
         try:
             logger.info("开始生成旅行方案")
+            
+            # 检查是否有多个偏好，决定使用拆分策略还是传统策略
+            use_split_strategy = self._should_use_split_strategy(preferences)
             
             # 首先尝试使用LLM生成方案
             try:
@@ -37,14 +41,26 @@ class PlanGenerator:
                     logger.warning("OpenAI API密钥未配置，使用传统方法")
                     raise Exception("OpenAI API密钥未配置")
                 
-                # 设置超时
-                llm_plans = await asyncio.wait_for(
-                    self._generate_plans_with_llm(processed_data, plan, preferences),
-                    timeout=600.0  # 600秒超时
-                )
+                # 根据偏好情况选择生成策略
+                if use_split_strategy:
+                    logger.info("使用拆分偏好策略生成方案")
+                    # 设置超时
+                    llm_plans = await asyncio.wait_for(
+                        self._generate_plans_with_split_preferences(processed_data, plan, preferences, raw_data),
+                        timeout=900.0  # 900秒超时，因为需要多次LLM调用
+                    )
+                else:
+                    logger.info("使用传统LLM策略生成方案")
+                    # 设置超时
+                    llm_plans = await asyncio.wait_for(
+                        self._generate_plans_with_llm(processed_data, plan, preferences, raw_data),
+                        timeout=600.0  # 600秒超时
+                    )
+                
                 if llm_plans:
                     logger.info(f"使用LLM生成了 {len(llm_plans)} 个旅行方案")
                     return llm_plans
+                    
             except asyncio.TimeoutError:
                 logger.warning("LLM调用超时，使用传统方法")
             except Exception as e:
@@ -64,7 +80,7 @@ class PlanGenerator:
             
             for i, plan_type in enumerate(plan_types[:self.max_plans]):
                 plan_data = await self._generate_single_plan(
-                    processed_data, plan, preferences, plan_type, i
+                    processed_data, plan, preferences, plan_type, i, raw_data
                 )
                 if plan_data:
                     plans.append(plan_data)
@@ -75,18 +91,520 @@ class PlanGenerator:
         except Exception as e:
             logger.error(f"生成旅行方案失败: {e}")
             return []
+
+    def _should_use_split_strategy(self, preferences: Optional[Dict[str, Any]]) -> bool:
+        """判断是否应该使用拆分策略"""
+        if not preferences:
+            return False
+        
+        # 检查是否有多个活动偏好
+        activity_preferences = preferences.get('activity_preference', [])
+        if isinstance(activity_preferences, str):
+            activity_preferences = [activity_preferences]
+        
+        # 如果有2个或以上的活动偏好，使用拆分策略
+        if len(activity_preferences) >= 2:
+            logger.info(f"检测到多个偏好 {activity_preferences}，使用拆分策略")
+            return True
+        
+        # 检查是否有冲突的偏好组合
+        has_culture = 'culture' in activity_preferences
+        has_nature = 'nature' in activity_preferences
+        has_food = 'food' in activity_preferences
+        has_shopping = 'shopping' in activity_preferences
+        
+        # 如果同时有文化和自然偏好，使用拆分策略
+        if has_culture and has_nature:
+            logger.info("检测到文化和自然偏好冲突，使用拆分策略")
+            return True
+        
+        # 如果同时有美食和购物偏好，使用拆分策略
+        if has_food and has_shopping:
+            logger.info("检测到美食和购物偏好冲突，使用拆分策略")
+            return True
+        
+        return False
     
+    def _group_preferences_by_compatibility(self, preferences: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """将偏好按兼容性分组，避免冲突的偏好在同一批次生成"""
+        if not preferences:
+            return [{}]
+        
+        # 定义偏好冲突组
+        conflict_groups = {
+            'budget_vs_luxury': ['budget_priority', 'luxury_preference'],
+            'culture_vs_nature': ['culture', 'nature'],
+            'food_vs_adventure': ['food', 'adventure'],
+            'relaxation_vs_shopping': ['relaxation', 'shopping']
+        }
+        
+        # 提取活动偏好
+        activity_preferences = preferences.get('activity_preference', [])
+        if isinstance(activity_preferences, str):
+            activity_preferences = [activity_preferences]
+        
+        # 基础偏好组（所有方案都包含）
+        base_preferences = {
+            'budget_priority': preferences.get('budget_priority', 'medium'),
+            'travelers_count': preferences.get('travelers_count', 1),
+            'food_preferences': preferences.get('food_preferences', []),
+            'dietary_restrictions': preferences.get('dietary_restrictions', []),
+            'age_groups': preferences.get('age_groups', [])
+        }
+        
+        # 如果没有活动偏好，返回基础偏好
+        if not activity_preferences:
+            return [base_preferences]
+        
+        # 根据活动偏好创建分组
+        preference_groups = []
+        
+        # 文化历史类
+        if 'culture' in activity_preferences:
+            culture_group = base_preferences.copy()
+            culture_group['activity_preference'] = 'culture'
+            culture_group['focus'] = 'cultural_depth'
+            preference_groups.append(culture_group)
+        
+        # 自然风光类
+        if 'nature' in activity_preferences:
+            nature_group = base_preferences.copy()
+            nature_group['activity_preference'] = 'nature'
+            nature_group['focus'] = 'natural_beauty'
+            preference_groups.append(nature_group)
+        
+        # 美食体验类
+        if 'food' in activity_preferences:
+            food_group = base_preferences.copy()
+            food_group['activity_preference'] = 'food'
+            food_group['focus'] = 'culinary_experience'
+            preference_groups.append(food_group)
+        
+        # 购物娱乐类
+        if 'shopping' in activity_preferences:
+            shopping_group = base_preferences.copy()
+            shopping_group['activity_preference'] = 'shopping'
+            shopping_group['focus'] = 'entertainment'
+            preference_groups.append(shopping_group)
+        
+        # 冒险刺激类
+        if 'adventure' in activity_preferences:
+            adventure_group = base_preferences.copy()
+            adventure_group['activity_preference'] = 'adventure'
+            adventure_group['focus'] = 'thrilling_activities'
+            preference_groups.append(adventure_group)
+        
+        # 休闲放松类
+        if 'relaxation' in activity_preferences:
+            relaxation_group = base_preferences.copy()
+            relaxation_group['activity_preference'] = 'relaxation'
+            relaxation_group['focus'] = 'peaceful_experience'
+            preference_groups.append(relaxation_group)
+        
+        # 如果没有匹配的偏好，返回基础偏好
+        if not preference_groups:
+            return [base_preferences]
+        
+        # 限制最大分组数量，避免过多的LLM调用
+        max_groups = 3
+        if len(preference_groups) > max_groups:
+            # 优先保留前三个偏好组
+            preference_groups = preference_groups[:max_groups]
+        
+        logger.info(f"偏好分组结果: {len(preference_groups)} 个组")
+        for i, group in enumerate(preference_groups):
+            logger.info(f"组 {i+1}: {group.get('focus', 'unknown')} - {group.get('activity_preference', 'none')}")
+        
+        return preference_groups
+
+    async def _generate_plans_with_split_preferences(
+        self,
+        processed_data: Dict[str, Any],
+        plan: Any,
+        preferences: Optional[Dict[str, Any]] = None,
+        raw_data: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """使用拆分偏好策略生成方案"""
+        try:
+            logger.info("开始使用拆分偏好策略生成方案")
+            
+            # 将偏好分组
+            preference_groups = self._group_preferences_by_compatibility(preferences)
+            
+            all_plans = []
+            
+            # 为每个偏好组生成方案
+            for i, pref_group in enumerate(preference_groups):
+                logger.info(f"为偏好组 {i+1}/{len(preference_groups)} 生成方案: {pref_group.get('focus', 'unknown')}")
+                
+                try:
+                    # 为单个偏好组生成1-2个方案
+                    group_plans = await self._generate_plans_for_single_preference(
+                        processed_data, plan, pref_group, raw_data, max_plans=1
+                    )
+                    
+                    if group_plans:
+                        # 为方案添加偏好标识
+                        for plan_data in group_plans:
+                            plan_data['preference_focus'] = pref_group.get('focus', 'general')
+                            plan_data['preference_group'] = i + 1
+                        
+                        all_plans.extend(group_plans)
+                        logger.info(f"偏好组 {i+1} 生成了 {len(group_plans)} 个方案")
+                    else:
+                        logger.warning(f"偏好组 {i+1} 未能生成方案")
+                
+                except Exception as e:
+                    logger.error(f"偏好组 {i+1} 生成失败: {e}")
+                    continue
+            
+            # 合并和去重
+            merged_plans = self._merge_and_deduplicate_plans(all_plans)
+            
+            logger.info(f"拆分生成完成，总共生成 {len(merged_plans)} 个方案")
+            return merged_plans
+            
+        except Exception as e:
+            logger.error(f"拆分偏好生成失败: {e}")
+            return []
+
+    async def _generate_plans_for_single_preference(
+        self,
+        processed_data: Dict[str, Any],
+        plan: Any,
+        preference: Dict[str, Any],
+        raw_data: Optional[Dict[str, Any]] = None,
+        max_plans: int = 1
+    ) -> List[Dict[str, Any]]:
+        """为单个偏好生成方案"""
+        try:
+            # 构建针对性的系统提示
+            focus = preference.get('focus', 'general')
+            activity_pref = preference.get('activity_preference', 'culture')
+            
+            system_prompt = f"""你是一个专业的旅行规划师，专门设计{self._get_focus_description(focus)}的旅行方案。
+
+请根据提供的数据和用户需求，生成{max_plans}个针对{focus}的旅行方案。
+
+在制定方案时，请特别注意以下要求：
+1. 重点关注{activity_pref}相关的景点和活动
+2. 人数配置：根据旅行人数合理安排住宿、餐厅、交通
+3. 年龄群体：针对不同年龄段调整行程强度和活动安排
+4. 饮食偏好：根据用户口味偏好推荐合适的餐厅
+5. 饮食禁忌：严格避免推荐包含用户饮食禁忌的餐厅和食物
+
+重要：请直接返回一个包含所有方案的数组，不要嵌套在plans对象中。
+
+必须严格按照以下JSON格式返回：
+
+[
+  {{
+    "id": "plan_1",
+    "type": "{self._get_plan_type_by_focus(focus)}",
+    "title": "{self._get_plan_title_by_focus(focus, plan.destination)}",
+    "description": "详细的方案描述",
+    "flight": {{
+      "airline": "航空公司",
+      "departure_time": "出发时间",
+      "arrival_time": "到达时间",
+      "price": 价格,
+      "rating": 评分
+    }},
+    "hotel": {{
+      "name": "酒店名称",
+      "address": "酒店地址",
+      "price_per_night": 每晚价格,
+      "rating": 评分,
+      "amenities": ["设施1", "设施2"]
+    }},
+    "daily_itineraries": [
+      {{
+        "day": 1,
+        "date": "日期",
+        "attractions": [
+          {{
+            "name": "景点名称",
+            "category": "景点类型",
+            "description": "景点描述",
+            "price": 门票价格,
+            "rating": 评分,
+            "visit_time": "建议游览时间"
+          }}
+        ],
+        "meals": [
+          {{
+            "type": "早餐/午餐/晚餐",
+            "time": "用餐时间",
+            "suggestion": "餐厅建议",
+            "estimated_cost": 预估费用
+          }}
+        ],
+        "transportation": {{
+          "type": "交通方式",
+          "route": "具体路线",
+          "duration": "耗时(分钟)",
+          "distance": "距离(公里)",
+          "cost": "费用(元)",
+          "traffic_conditions": "路况信息"
+        }},
+        "estimated_cost": 当日总费用
+      }}
+    ],
+    "restaurants": [
+      {{
+        "name": "餐厅名称",
+        "cuisine": "菜系",
+        "price_range": "价格区间",
+        "rating": 评分,
+        "address": "地址"
+      }}
+    ],
+    "transportation": [
+      {{
+        "type": "交通方式",
+        "name": "交通名称",
+        "description": "简要描述",
+        "duration": "耗时(分钟)",
+        "distance": "距离(公里)",
+        "price": "费用(元)"
+      }}
+    ],
+    "total_cost": {{
+      "flight": 航班费用,
+      "hotel": 酒店费用,
+      "attractions": 景点费用,
+      "meals": 餐饮费用,
+      "transportation": 交通费用,
+      "total": 总费用
+    }},
+    "weather_info": {{
+      "travel_recommendations": ["基于天气的旅游建议1", "建议2"]
+    }},
+    "destination_info": {{
+      "name": "目的地名称",
+      "latitude": 纬度,
+      "longitude": 经度,
+      "source": "数据来源"
+    }},
+    "duration_days": 天数,
+    "generated_at": "生成时间"
+  }}
+]
+
+请确保返回的JSON格式完全符合上述结构，不要添加任何额外的文本或说明。"""
+            
+            # 构建用户提示
+            user_prompt = f"""
+请为以下旅行需求制定{max_plans}个专注于{focus}的方案：
+
+出发地：{plan.departure}
+目的地：{plan.destination}
+旅行天数：{plan.duration_days}天
+出发日期：{plan.start_date}
+返回日期：{plan.end_date}
+预算：{plan.budget}元
+出行方式：{plan.transportation or '未指定'}
+旅行人数：{getattr(plan, 'travelers', 1)}人
+年龄群体：{', '.join(getattr(plan, 'ageGroups', [])) if getattr(plan, 'ageGroups', None) else '未指定'}
+饮食偏好：{', '.join(getattr(plan, 'foodPreferences', [])) if getattr(plan, 'foodPreferences', None) else '无特殊偏好'}
+饮食禁忌：{', '.join(getattr(plan, 'dietaryRestrictions', [])) if getattr(plan, 'dietaryRestrictions', None) else '无饮食禁忌'}
+重点偏好：{activity_pref}
+特殊要求：{plan.requirements or '无特殊要求'}
+
+真实可用数据：
+
+航班信息：
+{self._format_data_for_llm(processed_data.get('flights', []), 'flight')}
+
+酒店信息：
+{self._format_data_for_llm(processed_data.get('hotels', []), 'hotel')}
+
+景点信息（重点关注{activity_pref}相关）：
+{self._format_data_for_llm(self._filter_attractions_by_preference(processed_data.get('attractions', []), activity_pref), 'attraction')}
+
+餐厅信息：
+{self._format_data_for_llm(processed_data.get('restaurants', []), 'restaurant')}
+
+交通信息：
+{self._format_data_for_llm(processed_data.get('transportation', []), 'transportation')}
+
+天气信息：
+{processed_data.get('weather', {})}
+
+请基于以上真实数据生成{max_plans}个专注于{focus}的旅行方案。
+
+重要提醒：
+1. 必须严格按照指定的JSON格式返回
+2. 必须使用提供的真实数据，不要虚构信息
+3. 重点突出{activity_pref}相关的景点和活动
+4. 价格信息要基于真实数据，符合预算
+5. 景点安排要优先选择{activity_pref}类型的景点
+6. 餐饮建议要考虑与{activity_pref}景点的距离
+7. 根据旅行人数合理安排住宿、餐厅、交通
+8. 严格遵守饮食禁忌和偏好
+
+请直接返回JSON格式的结果，不要添加任何其他文本。
+"""
+            
+            # 调用LLM生成方案
+            response = await openai_client.generate_text(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=8000,
+                temperature=0.7
+            )
+            
+            if not response:
+                logger.warning("[计划生成器] LLM返回空响应")
+                return []
+            
+            # 解析JSON响应
+            try:
+                plans = json.loads(response)
+                if not isinstance(plans, list):
+                    logger.warning("[计划生成器] LLM返回的不是数组格式")
+                    logger.warning(f"[计划生成器] LLM返回: {response}")
+                    return []
+                
+                logger.warning(f"[计划生成器] LLM返回: {plans}")
+
+                logger.info(f"[计划生成器] 单偏好生成成功，解析到 {len(plans)} 个方案")
+                return plans
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"[计划生成器] 解析LLM响应JSON失败: {e}")
+                logger.error(f"[计划生成器] 响应内容: {response[:500]}...")
+                return []
+                
+        except Exception as e:
+            logger.error(f"[计划生成器] 单偏好方案生成失败: {e}")
+            return []
+
+    def _get_focus_description(self, focus: str) -> str:
+        """获取偏好焦点的描述"""
+        descriptions = {
+            'cultural_depth': '文化深度体验',
+            'natural_beauty': '自然风光欣赏',
+            'culinary_experience': '美食文化体验',
+            'entertainment': '购物娱乐',
+            'thrilling_activities': '冒险刺激体验',
+            'peaceful_experience': '休闲放松体验',
+            'general': '综合体验'
+        }
+        return descriptions.get(focus, '综合体验')
+
+    def _get_plan_type_by_focus(self, focus: str) -> str:
+        """根据偏好焦点获取方案类型"""
+        types = {
+            'cultural_depth': '文化深度型',
+            'natural_beauty': '自然风光型',
+            'culinary_experience': '美食体验型',
+            'entertainment': '购物娱乐型',
+            'thrilling_activities': '冒险刺激型',
+            'peaceful_experience': '休闲放松型',
+            'general': '综合体验型'
+        }
+        return types.get(focus, '综合体验型')
+
+    def _get_plan_title_by_focus(self, focus: str, destination: str) -> str:
+        """根据偏好焦点获取方案标题"""
+        titles = {
+            'cultural_depth': f'深度文化探索{destination}之旅',
+            'natural_beauty': f'{destination}自然风光之旅',
+            'culinary_experience': f'{destination}美食文化之旅',
+            'entertainment': f'{destination}购物娱乐之旅',
+            'thrilling_activities': f'{destination}冒险刺激之旅',
+            'peaceful_experience': f'{destination}休闲放松之旅',
+            'general': f'{destination}综合体验之旅'
+        }
+        return titles.get(focus, f'{destination}精彩之旅')
+
+    def _filter_attractions_by_preference(self, attractions: List[Dict], preference: str) -> List[Dict]:
+        """根据偏好过滤景点"""
+        if not attractions or not preference:
+            return attractions
+        
+        # 定义偏好关键词映射
+        preference_keywords = {
+            'culture': ['博物馆', '文化', '历史', '古迹', '寺庙', '宫殿', '纪念', '遗址', '传统'],
+            'nature': ['公园', '山', '湖', '海', '森林', '自然', '风景', '景观', '生态', '户外'],
+            'food': ['美食', '小吃', '餐厅', '市场', '夜市', '特色', '当地'],
+            'shopping': ['商场', '购物', '市场', '街区', '商业', '店铺'],
+            'adventure': ['游乐', '刺激', '冒险', '运动', '极限', '挑战'],
+            'relaxation': ['温泉', '度假', '休闲', '放松', '养生', '慢节奏']
+        }
+        
+        keywords = preference_keywords.get(preference, [])
+        if not keywords:
+            return attractions
+        
+        # 过滤景点
+        filtered = []
+        for attraction in attractions:
+            name = attraction.get('name', '')
+            description = attraction.get('description', '')
+            category = attraction.get('category', '')
+            
+            # 检查是否包含相关关键词
+            text_to_check = f"{name} {description} {category}".lower()
+            if any(keyword in text_to_check for keyword in keywords):
+                filtered.append(attraction)
+        
+        # 如果过滤后太少，返回原始列表的前部分
+        if len(filtered) < 3:
+            return attractions[:10]
+        
+        return filtered
+
+    def _merge_and_deduplicate_plans(self, plans: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """合并和去重方案"""
+        if not plans:
+            return []
+        
+        # 简单的去重逻辑：基于方案类型和主要景点
+        seen_signatures = set()
+        unique_plans = []
+        
+        for plan in plans:
+            # 创建方案签名
+            plan_type = plan.get('type', '')
+            attractions = []
+            
+            # 提取主要景点
+            for day in plan.get('daily_itineraries', []):
+                for attraction in day.get('attractions', []):
+                    attractions.append(attraction.get('name', ''))
+            
+            signature = f"{plan_type}_{hash(tuple(sorted(attractions[:3])))}"
+            
+            if signature not in seen_signatures:
+                seen_signatures.add(signature)
+                unique_plans.append(plan)
+        
+        # 限制最终方案数量
+        max_final_plans = 5
+        if len(unique_plans) > max_final_plans:
+            unique_plans = unique_plans[:max_final_plans]
+        
+        # 重新分配ID
+        for i, plan in enumerate(unique_plans):
+            plan['id'] = f"plan_{i+1}"
+        
+        logger.info(f"合并去重完成：{len(plans)} -> {len(unique_plans)} 个方案")
+        return unique_plans
+
     async def _generate_plans_with_llm(
         self,
         processed_data: Dict[str, Any],
         plan: Any,
-        preferences: Optional[Dict[str, Any]] = None
+        preferences: Optional[Dict[str, Any]] = None,
+        raw_data: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """使用LLM生成旅行方案"""
         try:
             # 构建系统提示
             system_prompt = """你是一个专业的旅行规划师，擅长为游客制定详细的旅行计划。
-请根据提供的数据和用户需求，生成3-5个不同风格的旅行方案。
+请根据提供的数据和用户需求，生成2个倾向吃好玩好的旅行方案。
 
 在制定方案时，请特别注意以下要求：
 1. 人数配置：根据旅行人数合理安排住宿（房间数量、床位类型）、餐厅（用餐人数、包间需求）、交通（车辆类型、座位数）
@@ -362,7 +880,7 @@ class PlanGenerator:
                                 'available_options': []
                             }
                 
-                logger.warning(f"最终返回结果：{validated_plans}")
+                logger.warning(f"最终返回结果：{json.dumps(validated_plans, ensure_ascii=False)}")
 
                 return validated_plans
                 
@@ -693,7 +1211,8 @@ class PlanGenerator:
         plan: Any,
         preferences: Optional[Dict[str, Any]],
         plan_type: str,
-        plan_index: int
+        plan_index: int,
+        raw_data: Optional[Dict[str, Any]] = None
     ) -> Optional[Dict[str, Any]]:
         """生成单个方案"""
         try:

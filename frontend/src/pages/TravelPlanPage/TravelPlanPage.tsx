@@ -186,7 +186,7 @@ const TravelPlanPage: React.FC = () => {
         body: JSON.stringify({
           preferences: {
             budget_priority: preferences.budget < 3000 ? 'low' : 'medium',
-            activity_preference: (preferences.preferences && preferences.preferences[0]) || 'culture',
+            activity_preference: preferences.preferences || ['culture'],
             travelers_count: preferences.travelers,
             food_preferences: preferences.foodPreferences,
             dietary_restrictions: preferences.dietaryRestrictions,

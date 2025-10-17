@@ -276,15 +276,28 @@ class PlanScorer:
             
             # 活动偏好调整
             if "activity_preference" in preferences:
-                activity_pref = preferences["activity_preference"]
-                if activity_pref == "culture":
-                    # 文化类活动加分
-                    culture_count = self._count_culture_activities(plan)
-                    adjusted_score += culture_count * 0.05
-                elif activity_pref == "nature":
-                    # 自然类活动加分
-                    nature_count = self._count_nature_activities(plan)
-                    adjusted_score += nature_count * 0.05
+                activity_prefs = preferences["activity_preference"]
+                # 确保activity_prefs是列表格式
+                if isinstance(activity_prefs, str):
+                    activity_prefs = [activity_prefs]
+                
+                for activity_pref in activity_prefs:
+                    if activity_pref == "culture":
+                        # 文化类活动加分
+                        culture_count = self._count_culture_activities(plan)
+                        adjusted_score += culture_count * 0.05
+                    elif activity_pref == "nature":
+                        # 自然类活动加分
+                        nature_count = self._count_nature_activities(plan)
+                        adjusted_score += nature_count * 0.05
+                    elif activity_pref == "food":
+                        # 美食类活动加分
+                        food_count = self._count_food_activities(plan)
+                        adjusted_score += food_count * 0.05
+                    elif activity_pref == "shopping":
+                        # 购物类活动加分
+                        shopping_count = self._count_shopping_activities(plan)
+                        adjusted_score += shopping_count * 0.05
             
             return max(0.0, min(1.0, adjusted_score))
             
@@ -304,6 +317,42 @@ class PlanScorer:
                 
                 if any(keyword in category or keyword in name 
                        for keyword in ["博物馆", "历史", "文化", "古迹", "艺术"]):
+                    count += 1
+        
+        return count
+    
+    def _count_food_activities(self, plan: Dict[str, Any]) -> int:
+        """统计美食类活动数量"""
+        count = 0
+        daily_itineraries = plan.get("daily_itineraries", [])
+        
+        for day in daily_itineraries:
+            # 统计餐厅数量
+            count += len(day.get("restaurants", []))
+            
+            # 统计美食相关景点
+            for attraction in day.get("attractions", []):
+                category = attraction.get("category", "").lower()
+                name = attraction.get("name", "").lower()
+                
+                if any(keyword in category or keyword in name 
+                       for keyword in ["美食", "小吃", "市场", "夜市", "食街"]):
+                    count += 1
+        
+        return count
+    
+    def _count_shopping_activities(self, plan: Dict[str, Any]) -> int:
+        """统计购物类活动数量"""
+        count = 0
+        daily_itineraries = plan.get("daily_itineraries", [])
+        
+        for day in daily_itineraries:
+            for attraction in day.get("attractions", []):
+                category = attraction.get("category", "").lower()
+                name = attraction.get("name", "").lower()
+                
+                if any(keyword in category or keyword in name 
+                       for keyword in ["商场", "购物", "商业", "步行街", "市场", "商店"]):
                     count += 1
         
         return count

@@ -65,7 +65,7 @@ class AgentService:
             logger.info("开始数据收集...")
             raw_data = await self._collect_data(plan, preferences, requirements)
 
-            logger.warning(f"数据收集结果: {raw_data}")
+            logger.warning(f"数据收集结果: {json.dumps(raw_data, ensure_ascii=False)}")
             
             # 4. 数据清洗和评分
             logger.info("开始数据清洗和评分...")
@@ -73,7 +73,7 @@ class AgentService:
             
             # 5. 生成多个方案
             logger.info("开始生成旅行方案...")
-            generated_plans = await self._generate_plans(processed_data, plan, preferences)
+            generated_plans = await self._generate_plans(processed_data, plan, preferences, raw_data)
             
             # 6. 方案评分和排序
             logger.info("开始方案评分和排序...")
@@ -115,24 +115,39 @@ class AgentService:
     
     async def _collect_data(
         self, 
-        plan: TravelPlan, 
+        plan, 
         preferences: Optional[Dict[str, Any]] = None,
-        requirements: Optional[Dict[str, Any]] = None
+        requirements: Optional[Dict[str, Any]] = None,
+        interval_seconds: float = 1.0  # 每个任务启动之间的时间间隔
     ) -> Dict[str, Any]:
-        """数据收集阶段"""
+        """数据收集阶段：在任务之间增加启动间隔"""
         
-        # 并行收集各类数据
-        tasks = [
-            self.data_collector.collect_flight_data(plan.departure, plan.destination, plan.start_date, plan.end_date),
-            self.data_collector.collect_hotel_data(plan.destination, plan.start_date, plan.end_date),
-            self.data_collector.collect_attraction_data(plan.destination),
-            self.data_collector.collect_weather_data(plan.destination, plan.start_date, plan.end_date),
-            self.data_collector.collect_restaurant_data(plan.destination),
-            self.data_collector.collect_transportation_data(plan.departure, plan.destination, plan.transportation)
+        logger.info(f"开始收集 {plan.destination} 的各类数据（每个任务间隔 {interval_seconds}s 启动）")
+
+        # 延迟创建任务的方式（保证延迟生效）
+        coro_factories = [
+            lambda: self.data_collector.collect_flight_data(plan.departure, plan.destination, plan.start_date, plan.end_date),
+            lambda: self.data_collector.collect_hotel_data(plan.destination, plan.start_date, plan.end_date),
+            lambda: self.data_collector.collect_attraction_data(plan.destination),
+            lambda: self.data_collector.collect_weather_data(plan.destination, plan.start_date, plan.end_date),
+            lambda: self.data_collector.collect_restaurant_data(plan.destination),
+            lambda: self.data_collector.collect_transportation_data(plan.departure, plan.destination, plan.transportation),
         ]
-        
+
+        tasks = []
+        for i, factory in enumerate(coro_factories):
+            if i > 0 and interval_seconds > 0:
+                logger.debug(f"等待 {interval_seconds}s 后启动下一个任务 ({i+1}/{len(coro_factories)})")
+                await asyncio.sleep(interval_seconds)
+            # 延迟创建 + 调度任务
+            task = asyncio.create_task(factory())
+            tasks.append(task)
+            logger.debug(f"已启动任务 {i+1}/{len(coro_factories)}")
+
+        # 并行等待所有任务完成
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
+        # 构造结果字典
         return {
             "flights": results[0] if not isinstance(results[0], Exception) else [],
             "hotels": results[1] if not isinstance(results[1], Exception) else [],
@@ -253,7 +268,8 @@ class AgentService:
         self, 
         processed_data: Dict[str, Any], 
         plan: TravelPlan,
-        preferences: Optional[Dict[str, Any]] = None
+        preferences: Optional[Dict[str, Any]] = None,
+        raw_data: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """生成多个旅行方案"""
         
@@ -267,22 +283,22 @@ class AgentService:
                     timeout=300.0  # 300秒超时
                 )
                 return await self.plan_generator.generate_plans(
-                    enhanced_data, plan, preferences
+                    enhanced_data, plan, preferences, raw_data
                 )
             else:
                 logger.info("OpenAI API密钥未配置，直接使用原始数据")
                 return await self.plan_generator.generate_plans(
-                    processed_data, plan, preferences
+                    processed_data, plan, preferences, raw_data
                 )
         except asyncio.TimeoutError:
             logger.warning("LLM数据增强超时，使用原始数据")
             return await self.plan_generator.generate_plans(
-                processed_data, plan, preferences
+                processed_data, plan, preferences, raw_data
             )
         except Exception as e:
             logger.warning(f"LLM增强数据失败，使用原始数据: {e}")
             return await self.plan_generator.generate_plans(
-                processed_data, plan, preferences
+                processed_data, plan, preferences, raw_data
             )
     
     async def _score_plans(
