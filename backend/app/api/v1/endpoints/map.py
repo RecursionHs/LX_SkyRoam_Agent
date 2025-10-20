@@ -37,22 +37,24 @@ async def get_static_map(
             # 构建高德静态地图URL - 使用正确的参数格式
             url = "https://restapi.amap.com/v3/staticmap"
             
-            # 构建markers参数：格式为 mid,,A:经度,纬度
-            markers = f"mid,,A:{longitude},{latitude}"
-            
             params = {
                 "key": AMAP_API_KEY,
                 "location": f"{longitude},{latitude}",
                 "zoom": zoom,
                 "size": f"{width}*{height}",
-                "markers": markers,
                 "traffic": 0,
                 "scale": 1
             }
             
-            # 如果有标题，添加labels参数
+            # 添加标记点，格式：经度,纬度
             if title:
-                params["labels"] = f"{title},2,0,16,0xFFFFFF,0x008000:{longitude},{latitude}"
+                # 使用markers参数添加标记点
+                params["markers"] = f"mid,,A:{longitude},{latitude}"
+                # 使用labels参数添加标签，格式：内容,字体,字体颜色,背景颜色:经度,纬度
+                params["labels"] = f"{title},1,0,16,0xFFFFFF,0x008000:{longitude},{latitude}"
+            else:
+                # 即使没有标题也添加一个简单的标记点
+                params["markers"] = f"mid,,A:{longitude},{latitude}"
             
         elif provider == "baidu":
             if not BAIDU_API_KEY:
@@ -76,8 +78,19 @@ async def get_static_map(
             raise HTTPException(status_code=400, detail="不支持的地图提供商")
         
         # 请求静态地图
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        logger.info(f"请求地图API: {url}")
+        logger.info(f"请求参数: {params}")
+        
+        async with httpx.AsyncClient(timeout=30.0, proxies=None) as client:
             response = await client.get(url, params=params)
+            logger.info(f"响应状态码: {response.status_code}")
+            logger.info(f"响应头: {response.headers}")
+            
+            if response.status_code != 200:
+                error_text = response.text
+                logger.error(f"地图API返回错误状态码 {response.status_code}: {error_text}")
+                raise HTTPException(status_code=500, detail=f"地图API返回错误: {error_text}")
+            
             response.raise_for_status()
             
             # 检查响应内容类型
