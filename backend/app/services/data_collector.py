@@ -1027,18 +1027,96 @@ class DataCollector:
         except Exception as e:
             logger.warning(f"收集混合交通数据失败: {e}")
     
+    async def _calculate_intercity_distance(self, departure: str, destination: str) -> tuple[int, int]:
+        """计算跨城距离和时间"""
+        try:
+            # 根据环境变量选择地图API
+            if self.map_provider == "amap":
+                # 使用高德地图API获取实际距离
+                amap_routes = await self.amap_client.get_directions(
+                    origin=departure,
+                    destination=destination,
+                    mode="driving"
+                )
+                
+                if amap_routes and len(amap_routes) > 0:
+                    route = amap_routes[0]  # 取第一条路线
+                    distance_km = route.get("distance", 0)
+                    duration_minutes = route.get("duration", 0)
+                    
+                    if distance_km > 0 and duration_minutes > 0:
+                        logger.info(f"从高德地图获取到{departure}到{destination}的实际距离: {distance_km}公里, 时间: {duration_minutes}分钟")
+                        return int(distance_km), int(duration_minutes)
+            else:
+                # 使用百度地图API获取实际距离
+                from app.tools.baidu_maps_integration import map_directions
+                
+                directions_result = await map_directions(
+                    origin=departure,
+                    destination=destination,
+                    model="driving",
+                    is_china="true"
+                )
+                
+                if directions_result and directions_result.get("status") == 0:
+                    routes = directions_result.get("result", {}).get("routes", [])
+                    if routes:
+                        route = routes[0]  # 取第一条路线
+                        distance_meters = route.get("distance", 0)
+                        duration_seconds = route.get("duration", 0)
+                        
+                        distance_km = distance_meters // 1000 if distance_meters > 0 else 500  # 默认500公里
+                        duration_minutes = duration_seconds // 60 if duration_seconds > 0 else distance_km * 1.2  # 默认每公里1.2分钟
+                        
+                        logger.info(f"从百度地图获取到{departure}到{destination}的实际距离: {distance_km}公里, 时间: {duration_minutes}分钟")
+                        return int(distance_km), int(duration_minutes)
+            
+            # 如果API调用失败，使用城市间距离估算
+            city_distances = {
+                ("西安", "杭州"): (1200, 720),  # 1200公里, 12小时
+                ("北京", "上海"): (1200, 720),
+                ("广州", "深圳"): (120, 120),
+                ("成都", "重庆"): (300, 180),
+                ("武汉", "长沙"): (350, 210),
+            }
+            
+            # 尝试匹配城市对
+            for (dep, dest), (dist, dur) in city_distances.items():
+                if (dep in departure and dest in destination) or (dest in departure and dep in destination):
+                    logger.info(f"使用预设距离: {departure}到{destination} = {dist}公里")
+                    return dist, dur
+            
+            # 默认估算：0公里，0小时
+            logger.warning(f"无法获取{departure}到{destination}的准确距离，使用默认值0公里")
+            return 0, 0
+            
+        except Exception as e:
+            logger.warning(f"计算跨城距离失败: {e}，使用默认值")
+            return 0, 0
+
     async def _add_intercity_alternatives(self, departure: str, destination: str, transport_data: List[Dict[str, Any]]):
         """为跨城路线添加替代交通方案"""
         try:
+            # 计算实际距离和时间
+            distance_km, driving_duration = await self._calculate_intercity_distance(departure, destination)
+            
+            # 根据距离调整各种交通方式的时间和价格
+            train_duration = max(60, int(distance_km * 0.5))  # 高铁速度约200km/h
+            bus_duration = max(120, int(distance_km * 0.8))   # 大巴速度约125km/h
+            
+            train_price = max(80, int(distance_km * 0.5))     # 高铁约0.5元/公里
+            bus_price = max(40, int(distance_km * 0.3))       # 大巴约0.3元/公里
+            driving_price = max(60, int(distance_km * 0.8))   # 自驾约0.8元/公里（油费+过路费）
+            
             # 添加高铁/火车方案
             train_item = {
                 "id": f"intercity_train_{len(transport_data)+1}",
                 "type": "高铁/火车",
                 "name": f"{departure}到{destination}高铁",
                 "description": f"从{departure}到{destination}的高铁/火车方案",
-                "duration": 60,  # 估算时间
-                "distance": 50,  # 估算距离
-                "price": 80,  # 估算价格
+                "duration": train_duration,
+                "distance": distance_km,
+                "price": train_price,
                 "currency": "CNY",
                 "operating_hours": "06:00-22:00",
                 "frequency": "30-60分钟",
@@ -1055,9 +1133,9 @@ class DataCollector:
                 "type": "长途汽车",
                 "name": f"{departure}到{destination}大巴",
                 "description": f"从{departure}到{destination}的长途汽车方案",
-                "duration": 120,  # 估算时间
-                "distance": 50,  # 估算距离
-                "price": 40,  # 估算价格
+                "duration": bus_duration,
+                "distance": distance_km,
+                "price": bus_price,
                 "currency": "CNY",
                 "operating_hours": "06:00-20:00",
                 "frequency": "60-120分钟",
@@ -1074,9 +1152,9 @@ class DataCollector:
                 "type": "自驾",
                 "name": f"{departure}到{destination}自驾",
                 "description": f"从{departure}到{destination}的自驾方案",
-                "duration": 90,  # 估算时间
-                "distance": 50,  # 估算距离
-                "price": 60,  # 估算费用（油费+过路费）
+                "duration": driving_duration,
+                "distance": distance_km,
+                "price": driving_price,
                 "currency": "CNY",
                 "operating_hours": "24小时",
                 "frequency": "随时",
@@ -1087,7 +1165,7 @@ class DataCollector:
             }
             transport_data.append(driving_item)
             
-            logger.info(f"为跨城路线添加了 {len(transport_data)} 个替代方案")
+            logger.info(f"为跨城路线添加了3个替代方案，距离: {distance_km}公里")
             
         except Exception as e:
             logger.warning(f"添加跨城替代方案失败: {e}")
