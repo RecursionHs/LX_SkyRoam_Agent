@@ -47,28 +47,10 @@ const AboutPage: React.FC = () => {
 
   const team = [
     {
-      name: '张明',
-      role: '产品经理',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangming',
+      name: 'Ikaros',
+      role: '创始人',
+      avatar: 'https://images.cnblogs.com/cnblogs_com/ikaros-521/1529977/o_251020095820_08bd1e55-e043-480e-a0db-35a0efa50113.png',
       description: '负责产品规划和用户体验设计'
-    },
-    {
-      name: '李华',
-      role: '技术总监',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lihua',
-      description: '负责技术架构和AI算法开发'
-    },
-    {
-      name: '王芳',
-      role: 'UI设计师',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wangfang',
-      description: '负责界面设计和用户体验优化'
-    },
-    {
-      name: '刘强',
-      role: '后端开发',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=liuqiang',
-      description: '负责后端服务和数据系统开发'
     }
   ];
 
@@ -120,7 +102,15 @@ const AboutPage: React.FC = () => {
                 margin: '0 auto',
                 boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)'
               }}>
-                <RocketOutlined style={{ fontSize: '120px', color: 'white' }} />
+                <img 
+                  src="/images/logo.png" 
+                  alt="Travel Plane" 
+                  style={{ 
+                    width: '120px', 
+                    height: '120px',
+                    filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.2))'
+                  }} 
+                />
               </div>
             </div>
           </Col>
@@ -208,22 +198,29 @@ const AboutPage: React.FC = () => {
               <List.Item>
                 <List.Item.Meta
                   avatar={<TeamOutlined style={{ fontSize: '20px', color: '#1890ff' }} />}
+                  title="QQ群"
+                  description="587663288"
+                />
+              </List.Item>
+              <List.Item>
+                <List.Item.Meta
+                  avatar={<TeamOutlined style={{ fontSize: '20px', color: '#1890ff' }} />}
                   title="邮箱"
-                  description="contact@lxskyroam.com"
+                  description="-"
                 />
               </List.Item>
               <List.Item>
                 <List.Item.Meta
                   avatar={<GlobalOutlined style={{ fontSize: '20px', color: '#52c41a' }} />}
                   title="官网"
-                  description="www.lxskyroam.com"
+                  description="https://luoxiai.dpdns.org/"
                 />
               </List.Item>
               <List.Item>
                 <List.Item.Meta
                   avatar={<HeartOutlined style={{ fontSize: '20px', color: '#f5222d' }} />}
                   title="客服热线"
-                  description="400-123-4567"
+                  description="-"
                 />
               </List.Item>
             </List>
@@ -234,7 +231,7 @@ const AboutPage: React.FC = () => {
             <List>
               <List.Item>
                 <Text strong>在线客服：</Text>
-                <Text> 7×24小时</Text>
+                <Text> 0×24小时</Text>
               </List.Item>
               <List.Item>
                 <Text strong>电话客服：</Text>
