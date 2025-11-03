@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI):
     
     # 关闭时清理
     logger.info("🛑 关闭 LX SkyRoam Agent...")
+    logger.info("✅ 应用关闭完成")
 
 
 # 创建FastAPI应用

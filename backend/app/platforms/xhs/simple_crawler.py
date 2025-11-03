@@ -96,14 +96,23 @@ class SimpleXHSCrawler:
                     logger.warning(f"策略 {strategy.__name__} 失败: {e}")
                     continue
             
-            # 所有策略都失败，返回高质量模拟数据
-            logger.warning(f"所有搜索策略都失败，返回模拟数据: {keyword}")
-            return self._generate_realistic_notes(keyword, page_size)
+            # 所有策略都失败，提供登录提示
+            logger.error(f"🚫 无法获取小红书数据: {keyword}")
+            logger.error("🔐 可能的原因：")
+            logger.error("   1. 需要登录小红书账号")
+            logger.error("   2. 网络连接问题")
+            logger.error("   3. 小红书反爬虫机制")
+            logger.error("💡 建议操作：")
+            logger.error("   - 运行登录脚本：python tests/login_xhs.py")
+            logger.error("   - 或使用Cookie管理工具：python app/tools/crawler/cookie_manager.py")
+            return []
                 
         except Exception as e:
             logger.error(traceback.format_exc())
-            logger.error(f"搜索小红书笔记失败: {keyword}, 错误: {e}")
-            return self._generate_realistic_notes(keyword, page_size)
+            logger.error(f"🚫 搜索小红书笔记失败: {keyword}, 错误: {e}")
+            logger.error("💡 建议检查网络连接或尝试登录小红书账号")
+            logger.error("   - 登录脚本：python tests/login_xhs.py")
+            return []
     
     async def _prepare_session(self):
         """准备会话，获取必要的cookies和tokens"""
@@ -185,7 +194,10 @@ class SimpleXHSCrawler:
             
             # 检查是否被重定向到登录页面
             if 'login' in html_content.lower() or '登录' in html_content:
-                logger.warning("页面要求登录，无法获取数据")
+                logger.error("🔐 小红书需要登录才能获取数据！")
+                logger.error("📱 请运行登录脚本进行登录：python tests/login_xhs.py")
+                logger.error("💡 或者使用Cookie管理工具：python app/tools/crawler/cookie_manager.py")
+                logger.error("⚠️  未登录状态下无法获取真实的小红书数据")
                 return []
             
             # 检查是否有反爬虫验证

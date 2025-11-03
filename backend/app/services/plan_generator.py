@@ -496,7 +496,7 @@ class PlanGenerator:
             response = await openai_client.generate_text(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=8000,
+                max_tokens=settings.OPENAI_MAX_TOKENS,
                 temperature=0.7
             )
             
@@ -1542,7 +1542,7 @@ class PlanGenerator:
             response = await openai_client.generate_text(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=2000,
+                max_tokens=settings.OPENAI_MAX_TOKENS,
                 temperature=0.7
             )
 
@@ -1639,7 +1639,7 @@ class PlanGenerator:
             response = await openai_client.generate_text(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=3000,
+                max_tokens=settings.OPENAI_MAX_TOKENS,
                 temperature=0.7
             )
 
@@ -1725,7 +1725,7 @@ class PlanGenerator:
             response = await openai_client.generate_text(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=2500,
+                max_tokens=settings.OPENAI_MAX_TOKENS,
                 temperature=0.7
             )
 
@@ -1824,11 +1824,12 @@ class PlanGenerator:
 
 请直接返回JSON格式结果。
 """
+            logger.warning(f"User prompt: {user_prompt}")
 
             response = await openai_client.generate_text(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=3500,
+                max_tokens=settings.OPENAI_MAX_TOKENS,
                 temperature=0.7
             )
 
@@ -2179,7 +2180,7 @@ class PlanGenerator:
             response = await openai_client.generate_text(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=4000,
+                max_tokens=settings.OPENAI_MAX_TOKENS,
                 temperature=0.7
             )
             

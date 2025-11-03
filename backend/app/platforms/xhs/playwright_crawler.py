@@ -87,6 +87,26 @@ class PlaywrightXHSCrawler:
                     # 如果没有登录容器，检查登录状态
                     if await self.check_login_status():
                         logger.info("🎉 使用已保存的cookies成功登录！")
+                        
+                        # 登录成功后更新Cookie，保持最新状态
+                        try:
+                            # 使用增强的Cookie管理器保存Cookie
+                            from app.services.enhanced_cookie_manager import enhanced_cookie_manager
+                            user_agent = await self.page.evaluate('navigator.userAgent')
+                            await enhanced_cookie_manager.save_cookies_enhanced(
+                                self.context, 
+                                user_agent=user_agent
+                            )
+                            logger.info("✅ Cookie已通过增强管理器更新保存")
+                        except Exception as e:
+                            # 如果增强管理器失败，回退到原始方法
+                            logger.warning(f"⚠️ 增强Cookie管理器保存失败: {e}")
+                            try:
+                                await self._save_cookies()
+                                logger.info("✅ Cookie已通过原始方法更新保存")
+                            except Exception as e2:
+                                logger.warning(f"⚠️ 原始Cookie保存也失败: {e2}")
+                        
                         return
                     else:
                         # 如果没有登录容器但也没有登录成功，可能需要更多时间
@@ -457,6 +477,20 @@ class PlaywrightXHSCrawler:
     async def _save_cookies(self):
         """保存cookies到本地文件"""
         try:
+            # 优先尝试使用增强的Cookie管理器
+            try:
+                from app.services.enhanced_cookie_manager import enhanced_cookie_manager
+                user_agent = await self.page.evaluate('navigator.userAgent')
+                await enhanced_cookie_manager.save_cookies_enhanced(
+                    self.context, 
+                    user_agent=user_agent
+                )
+                logger.info("✅ 通过增强管理器成功保存Cookie")
+                return
+            except Exception as e:
+                logger.warning(f"⚠️ 增强Cookie管理器保存失败: {e}，回退到原始方法")
+            
+            # 回退到原始Cookie保存方法
             cookies = await self.context.cookies()
             
             # 添加保存时间戳
@@ -469,7 +503,7 @@ class PlaywrightXHSCrawler:
             with open(self.cookies_file, 'w', encoding='utf-8') as f:
                 json.dump(cookie_data, f, ensure_ascii=False, indent=2)
             
-            logger.info(f"✅ Cookies已保存到: {self.cookies_file}")
+            logger.info(f"✅ 通过原始方法保存Cookies到: {self.cookies_file}")
             logger.info(f"📝 保存了 {len(cookies)} 个cookie")
             
         except Exception as e:
@@ -478,6 +512,19 @@ class PlaywrightXHSCrawler:
     async def _load_cookies(self):
         """从本地文件加载cookies"""
         try:
+            # 优先尝试使用增强的Cookie管理器
+            try:
+                from app.services.enhanced_cookie_manager import enhanced_cookie_manager
+                success = await enhanced_cookie_manager.load_cookies_enhanced(self.context)
+                if success:
+                    logger.info("✅ 通过增强管理器成功加载Cookie")
+                    return True
+                else:
+                    logger.info("📂 增强管理器未找到有效Cookie，尝试原始方法")
+            except Exception as e:
+                logger.warning(f"⚠️ 增强Cookie管理器加载失败: {e}，回退到原始方法")
+            
+            # 回退到原始Cookie加载方法
             if not self.cookies_file.exists():
                 logger.info("📂 未找到cookies文件，需要重新登录")
                 return False
@@ -506,7 +553,7 @@ class PlaywrightXHSCrawler:
             
             # 加载cookies
             await self.context.add_cookies(cookies)
-            logger.info(f"✅ 成功加载 {len(cookies)} 个cookie")
+            logger.info(f"✅ 通过原始方法成功加载 {len(cookies)} 个cookie")
             return True
             
         except FileNotFoundError:

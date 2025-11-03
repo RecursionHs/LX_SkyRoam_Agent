@@ -132,6 +132,7 @@ class AgentService:
             lambda: self.data_collector.collect_weather_data(plan.destination, plan.start_date, plan.end_date),
             lambda: self.data_collector.collect_restaurant_data(plan.destination),
             lambda: self.data_collector.collect_transportation_data(plan.departure, plan.destination, plan.transportation),
+            lambda: self.data_collector.collect_xiaohongshu_data(plan.destination),
         ]
 
         tasks = []
@@ -154,7 +155,8 @@ class AgentService:
             "attractions": results[2] if not isinstance(results[2], Exception) else [],
             "weather": results[3] if not isinstance(results[3], Exception) else {},
             "restaurants": results[4] if not isinstance(results[4], Exception) else [],
-            "transportation": results[5] if not isinstance(results[5], Exception) else []
+            "transportation": results[5] if not isinstance(results[5], Exception) else [],
+            "xiaohongshu_notes": results[6] if not isinstance(results[6], Exception) else []
         }
     
     async def _process_data(
@@ -177,78 +179,6 @@ class AgentService:
                 )
         
         return processed_data
-    
-    async def _enhance_data_with_llm(
-        self,
-        processed_data: Dict[str, Any],
-        plan: TravelPlan,
-        preferences: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """使用LLM增强数据"""
-        try:
-            # 构建数据增强提示
-            system_prompt = """你是一个专业的旅行数据分析师，擅长分析和优化旅行相关数据。
-请分析提供的旅行数据，并提供优化建议和补充信息。
-
-你需要：
-1. 分析现有数据的质量和完整性
-2. 识别缺失或不足的信息
-3. 提供数据优化建议
-4. 补充合理的推荐信息
-
-请以JSON格式返回增强后的数据。"""
-            
-            user_prompt = f"""
-请分析以下旅行数据并增强：
-
-出发地：{plan.departure}
-目的地：{plan.destination}
-旅行天数：{plan.duration_days}天
-预算：{plan.budget}元
-出行方式：{plan.transportation or '未指定'}
-用户偏好：{preferences or '无特殊偏好'}
-
-现有数据：
-- 航班：{len(processed_data.get('flights', []))}个选项
-- 酒店：{len(processed_data.get('hotels', []))}个选项  
-- 景点：{len(processed_data.get('attractions', []))}个选项
-- 餐厅：{len(processed_data.get('restaurants', []))}个选项
-- 交通：{len(processed_data.get('transportation', []))}个选项
-- 天气：{processed_data.get('weather', {})}
-
-请分析这些数据，识别需要补充的信息，并提供优化建议。
-"""
-            
-            # 调用LLM分析数据
-            analysis_response = await self.openai_client.generate_text(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                max_tokens=2000,
-                temperature=0.5
-            )
-            
-            # 尝试解析分析结果
-            try:
-                # 清理markdown格式
-                cleaned_response = self._clean_llm_response(analysis_response)
-                analysis_result = json.loads(cleaned_response)
-                logger.info("LLM数据增强成功")
-                
-                # 将分析结果合并到原始数据
-                enhanced_data = processed_data.copy()
-                enhanced_data['llm_analysis'] = analysis_result
-                enhanced_data['enhanced_at'] = datetime.utcnow().isoformat()
-                
-                return enhanced_data
-                
-            except json.JSONDecodeError as e:
-                logger.warning(f"LLM分析结果不是有效JSON: {e}")
-                logger.debug(f"清理后的响应: {cleaned_response}")
-                return processed_data
-                
-        except Exception as e:
-            logger.error(f"LLM数据增强失败: {e}")
-            return processed_data
     
     def _clean_llm_response(self, response: str) -> str:
         """清理LLM响应，移除markdown标记等"""
@@ -277,13 +207,8 @@ class AgentService:
         try:
             # 首先尝试使用LLM分析数据并生成方案
             if self.openai_client.api_key:
-                import asyncio
-                enhanced_data = await asyncio.wait_for(
-                    self._enhance_data_with_llm(processed_data, plan, preferences),
-                    timeout=300.0  # 300秒超时
-                )
                 return await self.plan_generator.generate_plans(
-                    enhanced_data, plan, preferences, raw_data
+                    processed_data, plan, preferences, raw_data
                 )
             else:
                 logger.info("OpenAI API密钥未配置，直接使用原始数据")

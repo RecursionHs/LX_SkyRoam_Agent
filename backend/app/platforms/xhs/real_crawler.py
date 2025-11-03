@@ -24,6 +24,8 @@ class XiaoHongShuRealCrawler(AbstractCrawler):
         try:
             await self.playwright_crawler.start()
             self.is_started = True
+            # 同步登录状态
+            self.is_logged_in = self.playwright_crawler.is_logged_in
             logger.info("小红书真实数据爬虫启动成功")
         except Exception as e:
             logger.error(f"启动爬虫失败: {e}")
@@ -58,6 +60,7 @@ class XiaoHongShuRealCrawler(AbstractCrawler):
                 return False
             
             status = await self.playwright_crawler.check_login_status()
+            # 同步登录状态
             self.is_logged_in = status
             return status
         except Exception as e:
