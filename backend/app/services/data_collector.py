@@ -20,6 +20,7 @@ from app.tools.baidu_maps_integration import (
     map_weather
 )
 # from app.services.web_scraper import WebScraper  # 已移除爬虫功能
+from app.services.xhs_integration_service import XHSIntegrationService
 from app.core.redis import get_cache, set_cache, cache_key
 
 
@@ -31,12 +32,15 @@ class DataCollector:
         self.amap_client = AmapMCPClient()
         self.city_resolver = CityResolver()
         # self.web_scraper = WebScraper()  # 已移除爬虫功能
+        self.xhs_service = XHSIntegrationService()  # 小红书数据集成服务
         self.http_client = httpx.AsyncClient(
             timeout=30.0,
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
             proxies={}
         )
         self.map_provider = settings.MAP_PROVIDER  # 地图服务提供商
+
+        # asyncio.run(self.collect_xiaohongshu_data("杭州西湖"))
     
     async def get_destination_geocode_info(self, destination: str) -> Optional[Dict[str, Any]]:
         """
@@ -805,6 +809,14 @@ class DataCollector:
             data["transportation"] = await self.collect_transportation_data(departure, destination, transportation_mode)
         except Exception:
             data["transportation"] = []
+        await asyncio.sleep(interval_seconds)
+
+        try:
+            # 收集小红书数据
+            data["xiaohongshu_notes"] = await self.collect_xiaohongshu_data(destination)
+        except Exception as e:
+            logger.exception(f"小红书数据收集失败: {e}")
+            data["xiaohongshu_notes"] = []
 
         return data
     
@@ -1253,6 +1265,104 @@ class DataCollector:
                     logger.info(f"从高德地图周边搜索获取到 {len(museums)} 条博物馆数据")
             else:
                 logger.warning(f"无法获取 {destination} 的坐标，跳过高德地图周边搜索")
+        except Exception as e:
+            logger.warning(f"高德地图景点数据收集失败: {e}")
+    
+    async def collect_xiaohongshu_data(self, destination: str) -> List[Dict[str, Any]]:
+        """
+        收集小红书数据
+        
+        Args:
+            destination: 目的地名称
+            
+        Returns:
+            List[Dict[str, Any]]: 小红书笔记数据列表
+        """
+        try:
+            logger.info(f"开始收集小红书数据: {destination}")
+            
+            # 使用小红书集成服务获取笔记数据
+            notes = await self.xhs_service.get_destination_notes(destination)
+            
+            # 转换为字典格式
+            notes_data = []
+            for note in notes:
+                note_dict = {
+                    "note_id": note.note_id,
+                    "title": note.title,
+                    "desc": note.desc,
+                    "type": note.type,
+                    "user_info": note.user_info,
+                    "img_urls": note.img_urls,
+                    "video_url": note.video_url,
+                    "tag_list": note.tag_list,
+                    "collected_count": note.collected_count,
+                    "comment_count": note.comment_count,
+                    "liked_count": note.liked_count,
+                    "share_count": note.share_count,
+                    "publish_time": note.publish_time.isoformat() if note.publish_time else None,
+                    "location": note.location,
+                    "relevance_score": note.relevance_score,
+                    "source": "xiaohongshu"  # 标识数据来源
+                }
+                notes_data.append(note_dict)
+            
+            logger.info(f"成功收集到 {len(notes_data)} 条小红书数据: {destination}")
+            return notes_data
+            
+        except Exception as e:
+            logger.error(f"收集小红书数据失败: {destination}, 错误: {e}")
+            return []
+    
+    def format_xiaohongshu_data_for_llm(self, destination: str, notes_data: List[Dict[str, Any]]) -> str:
+        """
+        将小红书数据格式化为适合LLM处理的文本
+        
+        Args:
+            destination: 目的地名称
+            notes_data: 小红书笔记数据列表
+            
+        Returns:
+            str: 格式化后的文本
+        """
+        try:
+            if not notes_data:
+                return f"未找到关于{destination}的小红书用户分享内容。"
+            
+            # 使用小红书集成服务的格式化方法
+            from app.services.xhs_integration_service import XHSNoteData
+            
+            # 转换回XHSNoteData对象
+            notes = []
+            for note_dict in notes_data:
+                try:
+                    note = XHSNoteData(
+                        note_id=note_dict.get("note_id", ""),
+                        title=note_dict.get("title", ""),
+                        desc=note_dict.get("desc", ""),
+                        type=note_dict.get("type", ""),
+                        user_info=note_dict.get("user_info", {}),
+                        img_urls=note_dict.get("img_urls", []),
+                        video_url=note_dict.get("video_url", ""),
+                        tag_list=note_dict.get("tag_list", []),
+                        collected_count=note_dict.get("collected_count", 0),
+                        comment_count=note_dict.get("comment_count", 0),
+                        liked_count=note_dict.get("liked_count", 0),
+                        share_count=note_dict.get("share_count", 0),
+                        publish_time=datetime.fromisoformat(note_dict["publish_time"]) if note_dict.get("publish_time") else datetime.now(),
+                        location=note_dict.get("location"),
+                        relevance_score=note_dict.get("relevance_score", 0.0)
+                    )
+                    notes.append(note)
+                except Exception as e:
+                    logger.warning(f"转换笔记数据失败: {e}")
+                    continue
+            
+            return self.xhs_service.format_notes_for_llm(notes, destination)
+            
+        except Exception as e:
+            logger.error(f"格式化小红书数据失败: {e}")
+            return f"小红书数据格式化失败，但收集到 {len(notes_data)} 条相关笔记。"
                 
         except Exception as e:
             logger.warning(f"高德地图景点周边搜索失败: {e}")

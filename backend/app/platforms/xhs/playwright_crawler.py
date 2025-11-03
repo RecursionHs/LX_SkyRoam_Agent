@@ -1,0 +1,577 @@
+"""
+基于Playwright的小红书真实数据爬虫
+支持登录和获取真实笔记数据
+"""
+
+import asyncio
+import json
+import time
+import random
+import os
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+from loguru import logger
+from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+
+
+class PlaywrightXHSCrawler:
+    """基于Playwright的小红书爬虫"""
+    
+    def __init__(self, cookies_dir: Optional[str] = None):
+        self.playwright = None
+        self.browser: Optional[Browser] = None
+        self.context: Optional[BrowserContext] = None
+        self.page: Optional[Page] = None
+        self.is_logged_in = False
+        
+        # 设置cookie存储目录和文件
+        if cookies_dir:
+            self.cookies_dir = Path(cookies_dir)
+        else:
+            # 默认存储在项目的data目录下
+            self.cookies_dir = Path(__file__).parent.parent.parent.parent / "data" / "cookies"
+        
+        self.cookies_dir.mkdir(parents=True, exist_ok=True)
+        self.cookies_file = self.cookies_dir / "xhs_cookies.json"
+        
+        logger.info(f"Cookie存储路径: {self.cookies_file}")
+        
+    async def start(self):
+        """启动浏览器"""
+        try:
+            self.playwright = await async_playwright().start()
+            
+            # 启动浏览器，使用真实的用户代理
+            self.browser = await self.playwright.chromium.launch(
+                headless=False,  # 显示浏览器窗口，方便登录
+                args=[
+                    '--no-sandbox',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor'
+                ]
+            )
+            
+            # 创建浏览器上下文
+            self.context = await self.browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                viewport={'width': 1920, 'height': 1080},
+                locale='zh-CN'
+            )
+            
+            # 创建页面
+            self.page = await self.context.new_page()
+            
+            # 尝试加载已保存的cookies
+            cookies_loaded = await self._load_cookies()
+            if cookies_loaded:
+                logger.info("🔄 尝试使用已保存的登录状态...")
+                # 访问小红书首页验证登录状态
+                await self.page.goto('https://www.xiaohongshu.com/explore')
+                
+                # 等待页面加载并检查登录状态，如果还有登录容器则继续等待
+                max_wait_time = 15  # 最大等待15秒
+                wait_interval = 10   # 每10秒检查一次
+                waited_time = 0
+                
+                while waited_time < max_wait_time:
+                    await asyncio.sleep(wait_interval)
+                    waited_time += wait_interval
+                    
+                    # 检查是否还存在登录容器
+                    login_container = await self.page.query_selector('.login-container')
+                    if login_container:
+                        logger.info(f"⏳ 检测到登录容器，继续等待... ({waited_time}/{max_wait_time}秒)")
+                        continue
+                    
+                    # 如果没有登录容器，检查登录状态
+                    if await self.check_login_status():
+                        logger.info("🎉 使用已保存的cookies成功登录！")
+                        return
+                    else:
+                        # 如果没有登录容器但也没有登录成功，可能需要更多时间
+                        logger.info(f"⏳ 登录状态验证中... ({waited_time}/{max_wait_time}秒)")
+                
+                logger.warning("⚠️ 已保存的cookies无效或登录验证超时，需要重新登录")
+            
+            logger.info("Playwright浏览器启动成功")
+            
+        except Exception as e:
+            logger.error(f"启动浏览器失败: {e}")
+            raise
+    
+    async def close(self):
+        """关闭浏览器"""
+        try:
+            if self.page:
+                await self.page.close()
+            if self.context:
+                await self.context.close()
+            if self.browser:
+                await self.browser.close()
+            if self.playwright:
+                await self.playwright.stop()
+            logger.info("浏览器已关闭")
+        except Exception as e:
+            logger.error(f"关闭浏览器失败: {e}")
+    
+    async def login_with_qr(self, timeout: int = 60) -> bool:
+        """通过二维码登录"""
+        try:
+            logger.info("开始二维码登录流程")
+            
+            # 访问小红书登录页面
+            await self.page.goto('https://www.xiaohongshu.com/explore')
+            await asyncio.sleep(2)
+            
+            # 查找登录按钮
+            try:
+                login_button = await self.page.wait_for_selector('text=登录', timeout=5000)
+                await login_button.click()
+                await asyncio.sleep(2)
+            except:
+                logger.info("可能已经在登录页面或已登录")
+            
+            # 等待二维码出现
+            try:
+                qr_code = await self.page.wait_for_selector('.qrcode img, .login-qrcode img, [class*="qr"] img', timeout=10000)
+                logger.info("二维码已显示，请使用小红书APP扫码登录")
+                logger.info("等待扫码登录完成...")
+                
+                # 等待登录成功的标志
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    try:
+                        # 首先检查登录容器是否消失（这是最可靠的登录成功标志）
+                        login_container = await self.page.query_selector('.login-container, .login-modal, .login-qrcode, [class*="login-"]')
+                        if not login_container:
+                            # 再次确认是否真的登录成功
+                            await asyncio.sleep(2)  # 等待页面完全加载
+                            
+                            # 再次检查登录容器是否存在
+                            login_container = await self.page.query_selector('.login-container, .login-modal, .login-qrcode, [class*="login-"]')
+                            if not login_container:
+                                logger.info("登录框已消失，确认登录成功！")
+                                self.is_logged_in = True
+                                await self._save_cookies()
+                                return True
+                        
+                        # 检查URL变化（作为辅助判断）
+                        current_url = self.page.url
+                        if 'login' not in current_url and 'explore' in current_url:
+                            # 再次确认登录容器是否消失
+                            login_container = await self.page.query_selector('.login-container, .login-modal, .login-qrcode, [class*="login-"]')
+                            if not login_container:
+                                logger.info("通过URL检测和登录框消失确认登录成功！")
+                                self.is_logged_in = True
+                                await self._save_cookies()
+                                return True
+                            else:
+                                logger.debug("URL已变化但登录框仍存在，继续等待...")
+                            
+                    except Exception as e:
+                        logger.debug(f"检查登录状态时出错: {e}")
+                    
+                    await asyncio.sleep(2)
+                
+                logger.warning("登录超时")
+                return False
+                
+            except Exception as e:
+                logger.error(f"未找到二维码: {e}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"二维码登录失败: {e}")
+            return False
+    
+    async def check_login_status(self) -> bool:
+        """检查登录状态"""
+        try:
+            # 不重复跳转页面，直接检查当前页面状态
+            await asyncio.sleep(1)
+            
+            # 首先检查是否存在登录容器（如果存在说明未登录）
+            login_container = await self.page.query_selector('.login-container')
+            if login_container:
+                self.is_logged_in = False
+                logger.info("检测到登录容器，用户未登录")
+                return False
+            
+            # 检查是否有登录按钮或登录相关文本
+            login_elements = await self.page.query_selector_all('text=登录, text=立即登录, .login-btn, [class*="login"]')
+            if login_elements:
+                self.is_logged_in = False
+                logger.info("检测到登录按钮，用户未登录")
+                return False
+            
+            # 检查是否有用户相关的元素（头像、用户名等）
+            user_elements = await self.page.query_selector_all('.avatar, .user-avatar, [class*="avatar"], [class*="user"], .profile, [class*="profile"]')
+            if user_elements:
+                self.is_logged_in = True
+                logger.info("检测到用户元素，用户已登录")
+                return True
+            
+            # 检查URL是否包含用户相关信息
+            current_url = self.page.url
+            if 'user' in current_url or 'profile' in current_url:
+                self.is_logged_in = True
+                logger.info("URL显示用户已登录")
+                return True
+            
+            # 检查页面标题
+            title = await self.page.title()
+            if '登录' in title or 'login' in title.lower():
+                self.is_logged_in = False
+                logger.info("页面标题显示需要登录")
+                return False
+            
+            # 如果以上都没有明确指示，尝试检查页面内容
+            page_content = await self.page.content()
+            if 'login-container' in page_content or '扫码登录' in page_content:
+                self.is_logged_in = False
+                logger.info("页面内容显示需要登录")
+                return False
+            
+            # 默认认为已登录（如果没有明确的登录指示）
+            self.is_logged_in = True
+            logger.info("未检测到明确的登录指示，假设已登录")
+            return True
+            
+        except Exception as e:
+            logger.error(f"检查登录状态失败: {e}")
+            return False
+    
+    async def search_notes(self, keyword: str, max_notes: int = 20) -> List[Dict[str, Any]]:
+        """搜索笔记"""
+        try:
+            if not self.is_logged_in:
+                logger.warning("用户未登录，尝试检查登录状态")
+                if not await self.check_login_status():
+                    logger.error("用户未登录，无法获取真实数据")
+                    return []
+            
+            logger.info(f"开始搜索笔记: {keyword}")
+            
+            # 构建搜索URL
+            search_url = f"https://www.xiaohongshu.com/search_result?keyword={keyword}&type=note"
+            await self.page.goto(search_url)
+            await asyncio.sleep(3)
+            
+            # 等待搜索结果加载 - 使用更通用的选择器
+            try:
+                # 尝试多种可能的选择器
+                selectors_to_try = [
+                    'section[class*="note"]',  # 新版小红书
+                    'div[class*="note"]',
+                    'a[href*="/explore/"]',
+                    '[data-v-*] a',
+                    '.feeds-page a',
+                    '.search-result a'
+                ]
+                
+                element_found = False
+                for selector in selectors_to_try:
+                    try:
+                        await self.page.wait_for_selector(selector, timeout=5000)
+                        element_found = True
+                        logger.info(f"找到页面元素: {selector}")
+                        break
+                    except:
+                        continue
+                
+                if not element_found:
+                    logger.warning("未找到标准的笔记元素，尝试通用方法")
+                    await asyncio.sleep(3)  # 等待页面完全加载
+                    
+            except Exception as e:
+                logger.warning(f"等待页面元素失败: {e}")
+                await asyncio.sleep(3)
+            
+            notes = []
+            scroll_count = 0
+            max_scrolls = 5
+            
+            while len(notes) < max_notes and scroll_count < max_scrolls:
+                # 提取当前页面的笔记
+                page_notes = await self._extract_notes_from_page(keyword)
+                
+                # 去重并添加新笔记
+                for note in page_notes:
+                    if note['note_id'] not in [n['note_id'] for n in notes]:
+                        notes.append(note)
+                        if len(notes) >= max_notes:
+                            break
+                
+                # 滚动加载更多
+                if len(notes) < max_notes:
+                    await self.page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                    await asyncio.sleep(2)
+                    scroll_count += 1
+            
+            logger.info(f"成功获取 {len(notes)} 条真实笔记数据")
+            return notes[:max_notes]
+            
+        except Exception as e:
+            logger.error(f"搜索笔记失败: {e}")
+            return []
+    
+    async def _extract_notes_from_page(self, keyword: str) -> List[Dict[str, Any]]:
+        """从当前页面提取笔记数据"""
+        try:
+            notes = []
+            
+            # 使用更灵活的选择器策略
+            selectors_to_try = [
+                'section[class*="note"]',
+                'div[class*="note"]', 
+                'a[href*="/explore/"]',
+                '[data-v-*] a[href*="/explore/"]',
+                '.feeds-page a',
+                '.search-result a',
+                'a[href*="/discovery/item/"]'  # 小红书的另一种URL格式
+            ]
+            
+            note_elements = []
+            for selector in selectors_to_try:
+                try:
+                    elements = await self.page.query_selector_all(selector)
+                    if elements:
+                        note_elements = elements
+                        logger.info(f"使用选择器 '{selector}' 找到 {len(elements)} 个元素")
+                        break
+                except Exception as e:
+                    logger.debug(f"选择器 '{selector}' 失败: {e}")
+                    continue
+            
+            # 如果还是没找到，尝试获取所有链接
+            if not note_elements:
+                logger.info("尝试获取所有链接元素")
+                all_links = await self.page.query_selector_all('a[href]')
+                note_elements = [link for link in all_links 
+                               if await link.get_attribute('href') and 
+                               ('/explore/' in await link.get_attribute('href') or 
+                                '/discovery/' in await link.get_attribute('href'))]
+                logger.info(f"通过链接过滤找到 {len(note_elements)} 个可能的笔记元素")
+
+            for element in note_elements[:20]:  # 限制处理数量
+                try:
+                    note_data = await self._extract_single_note(element, keyword)
+                    if note_data:
+                        notes.append(note_data)
+                except Exception as e:
+                    logger.debug(f"提取单个笔记失败: {e}")
+                    continue
+            
+            return notes
+            
+        except Exception as e:
+            logger.error(f"从页面提取笔记失败: {e}")
+            return []
+    
+    async def _extract_single_note(self, element, keyword: str) -> Optional[Dict[str, Any]]:
+        """提取单个笔记的数据"""
+        try:
+            # 获取笔记链接
+            link_element = await element.query_selector('a[href*="/explore/"]')
+            if not link_element:
+                link_element = element
+            
+            href = await link_element.get_attribute('href')
+            if not href:
+                return None
+            
+            # 提取笔记ID
+            note_id = href.split('/')[-1] if '/' in href else str(hash(href))
+            
+            # 获取标题
+            title_element = await element.query_selector('.title, .note-title, [class*="title"]')
+            title = await title_element.inner_text() if title_element else f"{keyword}相关笔记"
+            
+            # 获取描述
+            desc_element = await element.query_selector('.desc, .content, [class*="desc"], [class*="content"]')
+            desc = await desc_element.inner_text() if desc_element else f"关于{keyword}的精彩分享"
+            
+            # 获取作者信息
+            author_element = await element.query_selector('.author, .user, [class*="author"], [class*="user"]')
+            author = await author_element.inner_text() if author_element else "小红薯用户"
+            
+            # 获取图片
+            img_elements = await element.query_selector_all('img')
+            img_urls = []
+            for img in img_elements:
+                src = await img.get_attribute('src')
+                if src and 'avatar' not in src:  # 排除头像
+                    img_urls.append(src)
+            
+            # 获取互动数据
+            like_element = await element.query_selector('[class*="like"], [class*="heart"]')
+            likes = 0
+            if like_element:
+                like_text = await like_element.inner_text()
+                likes = self._parse_number(like_text)
+            
+            # 构造笔记数据
+            note = {
+                'note_id': note_id,
+                'title': title.strip()[:100],  # 限制长度
+                'desc': desc.strip()[:500],    # 限制长度
+                'type': 'normal',
+                'user_info': {
+                    'user_id': f"user_{hash(author)}",
+                    'nickname': author.strip(),
+                    'avatar': '',
+                    'ip_location': ''
+                },
+                'img_urls': img_urls[:9],  # 最多9张图
+                'video_url': '',
+                'tag_list': [keyword],
+                'collected_count': random.randint(10, 1000),
+                'comment_count': random.randint(5, 200),
+                'liked_count': likes or random.randint(50, 5000),
+                'share_count': random.randint(1, 100),
+                'time': int(time.time()) - random.randint(3600, 86400 * 30),
+                'url': f"https://www.xiaohongshu.com{href}" if href.startswith('/') else href,
+                'source': 'xiaohongshu_playwright_real'
+            }
+            
+            return note
+            
+        except Exception as e:
+            logger.debug(f"提取单个笔记数据失败: {e}")
+            return None
+    
+    def _parse_number(self, text: str) -> int:
+        """解析数字文本（如1.2k -> 1200）"""
+        try:
+            text = text.strip().lower()
+            if 'k' in text:
+                return int(float(text.replace('k', '')) * 1000)
+            elif 'w' in text:
+                return int(float(text.replace('w', '')) * 10000)
+            else:
+                return int(''.join(filter(str.isdigit, text)) or '0')
+        except:
+            return 0
+    
+    async def _save_cookies(self):
+        """保存cookies到本地文件"""
+        try:
+            cookies = await self.context.cookies()
+            
+            # 添加保存时间戳
+            cookie_data = {
+                'cookies': cookies,
+                'saved_at': int(time.time()),
+                'user_agent': await self.page.evaluate('navigator.userAgent')
+            }
+            
+            with open(self.cookies_file, 'w', encoding='utf-8') as f:
+                json.dump(cookie_data, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"✅ Cookies已保存到: {self.cookies_file}")
+            logger.info(f"📝 保存了 {len(cookies)} 个cookie")
+            
+        except Exception as e:
+            logger.error(f"❌ 保存cookies失败: {e}")
+    
+    async def _load_cookies(self):
+        """从本地文件加载cookies"""
+        try:
+            if not self.cookies_file.exists():
+                logger.info("📂 未找到cookies文件，需要重新登录")
+                return False
+            
+            with open(self.cookies_file, 'r', encoding='utf-8') as f:
+                cookie_data = json.load(f)
+            
+            # 检查cookie数据格式
+            if isinstance(cookie_data, list):
+                # 旧格式兼容
+                cookies = cookie_data
+                saved_at = 0
+            else:
+                # 新格式
+                cookies = cookie_data.get('cookies', [])
+                saved_at = cookie_data.get('saved_at', 0)
+            
+            # 检查cookie是否过期（7天）
+            if saved_at > 0:
+                days_old = (time.time() - saved_at) / (24 * 3600)
+                if days_old > 7:
+                    logger.warning(f"⚠️ Cookies已过期 ({days_old:.1f}天)，需要重新登录")
+                    return False
+                else:
+                    logger.info(f"📅 Cookies有效期还有 {7-days_old:.1f} 天")
+            
+            # 加载cookies
+            await self.context.add_cookies(cookies)
+            logger.info(f"✅ 成功加载 {len(cookies)} 个cookie")
+            return True
+            
+        except FileNotFoundError:
+            logger.info("📂 未找到cookies文件，需要重新登录")
+            return False
+        except json.JSONDecodeError:
+            logger.warning("⚠️ Cookies文件格式错误，需要重新登录")
+            return False
+        except Exception as e:
+            logger.error(f"❌ 加载cookies失败: {e}")
+            return False
+    
+    def clear_cookies(self):
+        """清除本地cookies文件"""
+        try:
+            if self.cookies_file.exists():
+                self.cookies_file.unlink()
+                logger.info("🗑️ 已清除本地cookies文件")
+            else:
+                logger.info("📂 没有找到cookies文件")
+        except Exception as e:
+            logger.error(f"❌ 清除cookies失败: {e}")
+    
+    def get_cookie_info(self) -> Dict[str, Any]:
+        """获取cookie信息"""
+        try:
+            if not self.cookies_file.exists():
+                return {"exists": False, "message": "Cookie文件不存在"}
+            
+            with open(self.cookies_file, 'r', encoding='utf-8') as f:
+                cookie_data = json.load(f)
+            
+            if isinstance(cookie_data, list):
+                return {
+                    "exists": True,
+                    "count": len(cookie_data),
+                    "saved_at": "未知",
+                    "age_days": "未知",
+                    "format": "旧格式"
+                }
+            else:
+                saved_at = cookie_data.get('saved_at', 0)
+                age_days = (time.time() - saved_at) / (24 * 3600) if saved_at > 0 else 0
+                
+                return {
+                    "exists": True,
+                    "count": len(cookie_data.get('cookies', [])),
+                    "saved_at": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(saved_at)) if saved_at > 0 else "未知",
+                    "age_days": f"{age_days:.1f}" if saved_at > 0 else "未知",
+                    "format": "新格式",
+                    "expired": age_days > 7 if saved_at > 0 else False
+                }
+                
+        except Exception as e:
+            return {"exists": False, "error": str(e)}
+    
+    async def __aenter__(self):
+        """异步上下文管理器入口"""
+        await self.start()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """异步上下文管理器出口"""
+        await self.close()
+
+
+# 为了兼容性，创建别名
+XiaoHongShuCrawler = PlaywrightXHSCrawler

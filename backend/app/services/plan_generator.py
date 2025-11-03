@@ -474,6 +474,9 @@ class PlanGenerator:
 天气信息：
 {processed_data.get('weather', {})}
 
+小红书真实用户分享（重要参考）：
+{self._format_xiaohongshu_data_for_prompt(raw_data.get('xiaohongshu_notes', []) if raw_data else [], plan.destination)}
+
 请基于以上真实数据生成{max_plans}个专注于{focus}的旅行方案。
 
 重要提醒：
@@ -656,7 +659,8 @@ class PlanGenerator:
                     processed_data.get('hotels', []),
                     processed_data.get('flights', []),
                     plan,
-                    preferences
+                    preferences,
+                    raw_data
                 )
             except Exception as e:
                 logger.error(f"住宿方案生成失败: {e}")
@@ -670,7 +674,8 @@ class PlanGenerator:
                 dining_plans = await self._generate_dining_plans(
                     processed_data.get('restaurants', []),
                     plan,
-                    preferences
+                    preferences,
+                    raw_data
                 )
             except Exception as e:
                 logger.error(f"餐饮方案生成失败: {e}")
@@ -698,7 +703,8 @@ class PlanGenerator:
                 attraction_plans = await self._generate_attraction_plans(
                     processed_data.get('attractions', []),
                     plan,
-                    preferences
+                    preferences,
+                    raw_data
                 )
             except Exception as e:
                 logger.error(f"景点方案生成失败: {e}")
@@ -935,6 +941,28 @@ class PlanGenerator:
      路况信息: {self._format_traffic_info(item.get('traffic_conditions', {}))}""")
         
         return '\n'.join(formatted_items) if formatted_items else "暂无数据"
+    
+    def _format_xiaohongshu_data_for_prompt(self, notes_data: List[Dict[str, Any]], destination: str) -> str:
+        """
+        将小红书数据格式化为适合LLM提示的文本
+        
+        Args:
+            notes_data: 小红书笔记数据列表
+            destination: 目的地名称
+            
+        Returns:
+            str: 格式化后的文本
+        """
+        try:
+            if not notes_data:
+                return f"暂无{destination}的小红书用户分享数据"
+            
+            # 使用数据收集器的格式化方法
+            return self.data_collector.format_xiaohongshu_data_for_llm(destination, notes_data)
+            
+        except Exception as e:
+            logger.error(f"格式化小红书数据失败: {e}")
+            return f"小红书数据格式化失败，但收集到 {len(notes_data)} 条相关笔记"
     
     def _format_traffic_info(self, traffic_conditions: Dict[str, Any]) -> str:
         """格式化路况信息"""
@@ -1435,7 +1463,8 @@ class PlanGenerator:
         hotels_data: List[Dict[str, Any]],
         flights_data: List[Dict[str, Any]],
         plan: Any,
-        preferences: Optional[Dict[str, Any]] = None
+        preferences: Optional[Dict[str, Any]] = None,
+        raw_data: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """生成住宿方案（包含航班信息）"""
         try:
@@ -1496,6 +1525,9 @@ class PlanGenerator:
 可用酒店数据：
 {self._format_data_for_llm(hotels_data, 'hotel')}
 
+小红书真实用户住宿体验分享：
+{self._format_xiaohongshu_data_for_prompt(raw_data.get('xiaohongshu_notes', []) if raw_data else [], plan.destination)}
+
 要求：
 1. 根据旅行人数({getattr(plan, 'travelers', 1)}人)合理安排房间数量和床位类型
 2. 考虑年龄群体({', '.join(getattr(plan, 'ageGroups', [])) if getattr(plan, 'ageGroups', None) else '未指定'})的住宿需求
@@ -1533,7 +1565,8 @@ class PlanGenerator:
         self,
         restaurants_data: List[Dict[str, Any]],
         plan: Any,
-        preferences: Optional[Dict[str, Any]] = None
+        preferences: Optional[Dict[str, Any]] = None,
+        raw_data: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """生成餐饮方案"""
         try:
@@ -1588,6 +1621,9 @@ class PlanGenerator:
 
 可用餐厅数据：
 {self._format_data_for_llm(restaurants_data, 'restaurant')}
+
+小红书真实用户美食分享：
+{self._format_xiaohongshu_data_for_prompt(raw_data.get('xiaohongshu_notes', []) if raw_data else [], plan.destination)}
 
 要求：
 1. 根据用户饮食偏好推荐合适菜系
@@ -1712,7 +1748,8 @@ class PlanGenerator:
         self,
         attractions_data: List[Dict[str, Any]],
         plan: Any,
-        preferences: Optional[Dict[str, Any]] = None
+        preferences: Optional[Dict[str, Any]] = None,
+        raw_data: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """生成景点游玩方案"""
         try:
@@ -1773,6 +1810,9 @@ class PlanGenerator:
 
 可用景点数据：
 {self._format_data_for_llm(attractions_data, 'attraction')}
+
+小红书真实用户景点体验分享：
+{self._format_xiaohongshu_data_for_prompt(raw_data.get('xiaohongshu_notes', []) if raw_data else [], plan.destination)}
 
 要求：
 1. 根据年龄群体调整景点选择和活动强度

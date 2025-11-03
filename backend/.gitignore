@@ -163,3 +163,5 @@ output/
 
 .history
 logs/*.log
+
+data/
