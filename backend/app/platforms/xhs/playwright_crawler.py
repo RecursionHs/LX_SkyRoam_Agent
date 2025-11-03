@@ -390,10 +390,13 @@ class PlaywrightXHSCrawler:
             return []
     
     async def _extract_single_note(self, element, keyword: str) -> Optional[Dict[str, Any]]:
-        """提取单个笔记的数据"""
+        """提取单个笔记的数据，包括点击进入详情页获取完整内容"""
         try:
             # 获取笔记链接
             link_element = await element.query_selector('a[href*="/explore/"]')
+            if not link_element:
+                # 尝试其他可能的链接选择器
+                link_element = await element.query_selector('a.cover.mask.ld, a[href*="/discovery/"]')
             if not link_element:
                 link_element = element
             
@@ -404,13 +407,9 @@ class PlaywrightXHSCrawler:
             # 提取笔记ID
             note_id = href.split('/')[-1] if '/' in href else str(hash(href))
             
-            # 获取标题
+            # 从搜索结果页面获取基本信息
             title_element = await element.query_selector('.title, .note-title, [class*="title"]')
             title = await title_element.inner_text() if title_element else f"{keyword}相关笔记"
-            
-            # 获取描述
-            desc_element = await element.query_selector('.desc, .content, [class*="desc"], [class*="content"]')
-            desc = await desc_element.inner_text() if desc_element else f"关于{keyword}的精彩分享"
             
             # 获取作者信息
             author_element = await element.query_selector('.author, .user, [class*="author"], [class*="user"]')
@@ -431,11 +430,14 @@ class PlaywrightXHSCrawler:
                 like_text = await like_element.inner_text()
                 likes = self._parse_number(like_text)
             
+            # 点击进入详情页获取完整描述
+            detailed_desc = await self._get_detailed_description(element)
+            
             # 构造笔记数据
             note = {
                 'note_id': note_id,
                 'title': title.strip()[:100],  # 限制长度
-                'desc': desc.strip()[:500],    # 限制长度
+                'desc': detailed_desc or f"关于{keyword}的精彩分享",
                 'type': 'normal',
                 'user_info': {
                     'user_id': f"user_{hash(author)}",
@@ -460,6 +462,177 @@ class PlaywrightXHSCrawler:
         except Exception as e:
             logger.debug(f"提取单个笔记数据失败: {e}")
             return None
+    
+    async def _get_detailed_description(self, note_element) -> Optional[str]:
+        """点击进入笔记详情页获取完整描述"""
+        try:
+            # 获取当前页面URL，用于后续返回
+            current_url = self.page.url
+            
+            # 直接尝试点击笔记卡片进入详情页
+            clicked = False
+            
+            # 策略1: 直接点击笔记卡片的不同区域，根据HTML结构分析
+            click_strategies = [
+                # 根据HTML结构，优先点击标题链接（在footer中的title类）
+                ('div.footer a.title', '标题链接'),
+                ('a.title', '标题链接'),
+                ('.title', '标题区域'),
+                # 尝试点击标题文本
+                ('div.footer a.title span', '标题文本'),
+                ('a.title span', '标题文本'),
+                # 如果上面都没找到，尝试点击整个footer区域
+                ('div.footer', 'footer区域'),
+                ('.footer', 'footer区域'),
+                # 最后尝试点击整个笔记卡片
+                ('', '整个笔记卡片')
+            ]
+            
+            for selector, desc in click_strategies:
+                try:
+                    if selector == '':
+                        # 直接点击整个笔记卡片
+                        click_element = note_element
+                    else:
+                        # 在笔记卡片内查找特定元素
+                        click_element = await note_element.query_selector(selector)
+                    
+                    if click_element:
+                        logger.debug(f"尝试点击{desc}: {selector}")
+                        
+                        # 滚动到元素可见
+                        await click_element.scroll_into_view_if_needed()
+                        await self.page.wait_for_timeout(300)
+                        
+                        # 点击元素
+                        await click_element.click(timeout=3000)
+                        clicked = True
+                        logger.debug(f"成功点击{desc}")
+                        break
+                        
+                except Exception as e:
+                    logger.debug(f"点击{desc}失败: {e}")
+                    continue
+            
+            # 策略2: JavaScript点击
+            if not clicked:
+                try:
+                    logger.debug("尝试JavaScript点击")
+                    await link_element.evaluate('element => element.click()')
+                    clicked = True
+                    logger.debug("JavaScript点击成功")
+                except Exception as e:
+                    logger.debug(f"JavaScript点击失败: {e}")
+            
+            # 策略3: 直接导航
+            if not clicked:
+                try:
+                    full_url = f"https://www.xiaohongshu.com{href}" if href.startswith('/') else href
+                    logger.debug(f"直接导航到: {full_url}")
+                    await self.page.goto(full_url, timeout=10000)
+                    clicked = True
+                    logger.debug("导航成功")
+                except Exception as e:
+                    logger.debug(f"导航失败: {e}")
+            
+            if not clicked:
+                logger.debug("所有点击策略都失败")
+                return ""
+            
+            # 等待详情页加载
+            await self.page.wait_for_timeout(3000)
+            
+            # 检查是否成功进入详情页
+            current_page_url = self.page.url
+            if '/explore/' not in current_page_url:
+                logger.debug(f"未成功进入详情页，当前URL: {current_page_url}")
+                return ""
+            
+            logger.debug(f"成功进入详情页: {current_page_url}")
+            
+            # 尝试多种选择器提取详细描述
+            desc_selectors = [
+                '#detail-desc > span > span:nth-child(1)',  # 用户提供的选择器
+                '#detail-desc span span:first-child',
+                '#detail-desc span span',
+                '#detail-desc span',
+                '#detail-desc',
+                '[id*="detail"] span',
+                '.note-detail-desc',
+                '.detail-desc',
+                '[class*="desc"] span',
+                '.content-text',
+                'div[class*="content"] span'
+            ]
+            
+            detailed_desc = ""
+            for selector in desc_selectors:
+                try:
+                    desc_element = await self.page.query_selector(selector)
+                    if desc_element:
+                        text = await desc_element.inner_text()
+                        if text and len(text.strip()) > 10:  # 确保获取到有意义的内容
+                            detailed_desc = text.strip()
+                            logger.debug(f"使用选择器 '{selector}' 成功获取描述: {detailed_desc[:100]}...")
+                            break
+                except Exception as e:
+                    logger.debug(f"选择器 '{selector}' 失败: {e}")
+                    continue
+            
+            # 如果还没找到，尝试获取页面主要文本
+            if not detailed_desc:
+                try:
+                    # 等待更长时间让内容加载
+                    await self.page.wait_for_timeout(2000)
+                    
+                    # 尝试获取所有可能的文本内容
+                    text_selectors = [
+                        'div[class*="note"] span',
+                        'div[class*="content"] span',
+                        'p',
+                        'div[data-v-*] span'
+                    ]
+                    
+                    for selector in text_selectors:
+                        try:
+                            elements = await self.page.query_selector_all(selector)
+                            for element in elements:
+                                text = await element.inner_text()
+                                if text and len(text.strip()) > 20 and len(text.strip()) < 2000:
+                                    # 过滤掉不相关的内容
+                                    if not any(keyword in text.lower() for keyword in 
+                                             ['登录', '注册', '点赞', '收藏', '分享', '评论', '沪icp', '营业执照']):
+                                        detailed_desc = text.strip()
+                                        logger.debug(f"通过文本选择器 '{selector}' 获取描述: {detailed_desc[:100]}...")
+                                        break
+                            if detailed_desc:
+                                break
+                        except Exception as e:
+                            logger.debug(f"文本选择器 '{selector}' 失败: {e}")
+                            continue
+                            
+                except Exception as e:
+                    logger.debug(f"获取页面文本失败: {e}")
+            
+            # 返回搜索结果页面
+            try:
+                await self.page.go_back(timeout=5000)
+                await self.page.wait_for_timeout(1000)
+                logger.debug("已返回搜索结果页面")
+            except Exception as e:
+                logger.debug(f"返回搜索页面失败: {e}")
+                # 如果返回失败，尝试重新导航到搜索页面
+                try:
+                    await self.page.goto(current_url, timeout=10000)
+                    await self.page.wait_for_timeout(2000)
+                except Exception as e2:
+                    logger.debug(f"重新导航到搜索页面失败: {e2}")
+            
+            return detailed_desc if detailed_desc else ""
+            
+        except Exception as e:
+            logger.debug(f"获取详细描述时发生错误: {e}")
+            return ""
     
     def _parse_number(self, text: str) -> int:
         """解析数字文本（如1.2k -> 1200）"""
