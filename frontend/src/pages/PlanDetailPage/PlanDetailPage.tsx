@@ -16,7 +16,9 @@ import {
   Modal,
   Rate,
   Image,
-  Collapse
+  Collapse,
+  Input,
+  message
 } from 'antd';
 import { 
   CalendarOutlined, 
@@ -94,6 +96,7 @@ const PlanDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedPlanIndex, setSelectedPlanIndex] = useState(0);
   const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
   const [showAllHotels, setShowAllHotels] = useState(false);
 
   useEffect(() => {
@@ -315,7 +318,15 @@ const PlanDetailPage: React.FC = () => {
               </Button>
               <Button 
                 icon={<ShareAltOutlined />}
-                onClick={() => setExportModalVisible(true)}
+                onClick={() => {
+                  const shareUrl = window.location.href;
+                  const title = planDetail?.destination ? `${planDetail.destination}旅行方案` : '旅行方案分享';
+                  if ((navigator as any).share) {
+                    (navigator as any).share({ title, url: shareUrl }).catch(() => setShareModalVisible(true));
+                  } else {
+                    setShareModalVisible(true);
+                  }
+                }}
               >
                 分享
               </Button>
@@ -1491,6 +1502,71 @@ const PlanDetailPage: React.FC = () => {
           >
             导出为 JSON
           </Button>
+        </Space>
+      </Modal>
+
+      {/* 分享模态框 */}
+      <Modal
+        title="分享方案"
+        open={shareModalVisible}
+        onCancel={() => setShareModalVisible(false)}
+        footer={null}
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Text>分享链接：</Text>
+          <Space>
+            <Input value={window.location.href} readOnly style={{ width: 360 }} />
+            <Button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(window.location.href);
+                  message.success('链接已复制到剪贴板');
+                } catch {
+                  message.error('复制失败，请手动复制');
+                }
+              }}
+            >
+              复制链接
+            </Button>
+          </Space>
+
+          <Divider style={{ margin: '12px 0' }} />
+
+          <Space wrap>
+            <Button
+              icon={<ShareAltOutlined />}
+              onClick={() => {
+                const shareUrl = window.location.href;
+                const title = planDetail?.destination ? `${planDetail.destination}旅行方案` : '旅行方案分享';
+                if ((navigator as any).share) {
+                  (navigator as any).share({ title, url: shareUrl });
+                } else {
+                  message.info('当前浏览器不支持系统分享，请使用下方方式');
+                }
+              }}
+            >
+              系统分享（支持手机）
+            </Button>
+
+            <a
+              href={`https://connect.qq.com/widget/shareqq/index.html?url=${encodeURIComponent(window.location.href)}&title=${encodeURIComponent(planDetail?.destination ? `${planDetail.destination}旅行方案` : '旅行方案分享')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button icon={<ShareAltOutlined />}>分享到QQ</Button>
+            </a>
+          </Space>
+
+          <Divider style={{ margin: '12px 0' }} />
+
+          <Text>微信分享（扫码）：</Text>
+          <Image
+            width={180}
+            height={180}
+            src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(window.location.href)}`}
+            alt="微信扫码分享二维码"
+            preview={false}
+          />
         </Space>
       </Modal>
     </div>
