@@ -17,6 +17,8 @@ from app.schemas.travel_plan import (
 from app.services.travel_plan_service import TravelPlanService
 from app.services.agent_service import AgentService
 from loguru import logger
+from fastapi.responses import HTMLResponse, JSONResponse, Response, PlainTextResponse
+from fastapi.encoders import jsonable_encoder
 
 router = APIRouter()
 
@@ -199,20 +201,96 @@ async def select_travel_plan(
     return {"message": "方案选择成功"}
 
 
-@router.post("/{plan_id}/export")
+def _render_plan_html(plan_data: dict) -> str:
+    title = plan_data.get("title") or f"旅行方案 #{plan_data.get('id', '')}"
+    destination = plan_data.get("destination", "")
+    description = plan_data.get("description", "")
+    score = plan_data.get("score")
+    duration_days = plan_data.get("duration_days")
+    selected_plan = plan_data.get("selected_plan") or {}
+    items = plan_data.get("items") or []
+    
+    def safe(v):
+        return v if v is not None else ""
+    
+    html = f"""
+    <!doctype html>
+    <html lang=\"zh\">
+    <head>
+      <meta charset=\"utf-8\" />
+      <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+      <title>{safe(title)}</title>
+      <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif; margin: 24px; color: #222; }}
+        h1 {{ margin: 0 0 8px; font-size: 24px; }}
+        .meta {{ color: #666; margin-bottom: 16px; }}
+        .section {{ margin: 16px 0; }}
+        .item {{ border: 1px solid #eee; border-radius: 6px; padding: 12px; margin: 8px 0; }}
+        .item-title {{ font-weight: 600; margin-bottom: 6px; }}
+        .item-desc {{ color: #555; }}
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid #eee; padding: 8px; text-align: left; }}
+      </style>
+    </head>
+    <body>
+      <h1>{safe(title)}</h1>
+      <div class=\"meta\">目的地：{safe(destination)} | 天数：{safe(duration_days)} | 评分：{safe(score)}</div>
+      <div class=\"section\">
+        <h2>方案简介</h2>
+        <p class=\"item-desc\">{safe(description)}</p>
+      </div>
+      <div class=\"section\">
+        <h2>最终选择的方案</h2>
+        <pre style=\"white-space: pre-wrap; background: #fafafa; border: 1px solid #eee; padding: 12px; border-radius: 6px;\">{safe(str(selected_plan))}</pre>
+      </div>
+      <div class=\"section\">
+        <h2>行程项目</h2>
+        {''.join([
+          f"<div class='item'><div class='item-title'>{safe(i.get('title'))}</div>"
+          f"<div class='item-desc'>{safe(i.get('description'))}</div>"
+          f"<div>类型：{safe(i.get('item_type'))}</div>"
+          f"<div>位置：{safe(i.get('location'))}</div>"
+          f"<div>地址：{safe(i.get('address'))}</div>"
+          f"</div>" for i in items
+        ])}
+      </div>
+    </body>
+    </html>
+    """
+    return html
+
+@router.get("/{plan_id}/export")
 async def export_travel_plan(
     plan_id: int,
     format: str = "pdf",  # pdf, json, html
     db: AsyncSession = Depends(get_async_db)
 ):
-    """导出旅行计划"""
+    """导出旅行计划（支持GET，返回json/html，pdf暂未实现）"""
+    allowed = {"json", "html", "pdf"}
+    if format not in allowed:
+        raise HTTPException(status_code=400, detail=f"不支持的导出格式: {format}")
+    
     service = TravelPlanService(db)
     plan = await service.get_travel_plan(plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="旅行计划不存在")
     
-    # 这里应该调用导出服务
-    # export_service = ExportService()
-    # return await export_service.export_plan(plan, format)
+    plan_data = TravelPlanResponse.from_orm(plan).dict()
     
-    return {"message": f"导出功能开发中，格式: {format}"}
+    if format == "json":
+        return JSONResponse(content=jsonable_encoder(plan_data))
+    elif format == "html":
+        html = _render_plan_html(plan_data)
+        return HTMLResponse(content=html)
+    else:  # pdf
+        # 这里可以集成 PDF 生成（如 WeasyPrint/xhtml2pdf），暂时返回提示
+        return PlainTextResponse(content="PDF 导出暂未实现", status_code=501)
+
+@router.post("/{plan_id}/export")
+async def export_travel_plan_post(
+    plan_id: int,
+    format: str = "pdf",  # pdf, json, html
+    db: AsyncSession = Depends(get_async_db)
+):
+    """导出旅行计划（POST，同步返回，与GET一致）"""
+    return await export_travel_plan(plan_id=plan_id, format=format, db=db)

@@ -1484,21 +1484,14 @@ const PlanDetailPage: React.FC = () => {
           <Button 
             block 
             size="large"
-            onClick={() => handleExport('pdf')}
+            onClick={() => { setExportModalVisible(false); setTimeout(() => window.print(), 300); }}
           >
-            导出为 PDF
+            打印导出 PDF（浏览器）
           </Button>
           <Button 
             block 
             size="large"
-            onClick={() => handleExport('html')}
-          >
-            导出为 HTML
-          </Button>
-          <Button 
-            block 
-            size="large"
-            onClick={() => handleExport('json')}
+            onClick={() => { window.open(buildApiUrl(`/travel-plans/${id}/export?format=json`), '_blank'); setExportModalVisible(false); }}
           >
             导出为 JSON
           </Button>
