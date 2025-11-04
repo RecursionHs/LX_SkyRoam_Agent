@@ -60,11 +60,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { key: '/history', label: '历史记录', icon: <HistoryOutlined /> },
     { key: '/about', label: '关于我们', icon: <InfoCircleOutlined /> },
   ];
-  const adminMenuItems = user?.role === 'admin' ? [
-    { key: '/admin/users', label: '用户管理', icon: <UserOutlined /> },
-    { key: '/admin/history', label: '历史记录管理', icon: <HistoryOutlined /> },
-  ] : [];
-  const menuItems = [...baseMenuItems, ...adminMenuItems];
+  // 管理员入口不再出现在顶部主菜单，改为头像下拉
+  const menuItems = baseMenuItems;
 
   const handleMenuClick = (key: string) => {
     navigate(key);
@@ -125,9 +122,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const userMenu = (
     <Menu
       items={[
+        // 管理员入口放在头像下拉
+        ...(user?.role === 'admin' ? [
+          { key: 'admin_users', label: '用户管理', icon: <UserOutlined />, onClick: () => navigate('/admin/users') },
+          { key: 'admin_history', label: '历史记录管理', icon: <HistoryOutlined />, onClick: () => navigate('/admin/history') },
+          { type: 'divider' as const },
+        ] : []),
         { key: 'profile', label: '个人资料', onClick: () => setProfileVisible(true) },
         { key: 'password', label: '修改密码', onClick: () => setPasswordVisible(true) },
-        { type: 'divider' },
+        { type: 'divider' as const },
         { key: 'logout', label: '退出登录', onClick: handleLogout },
       ]}
     />
