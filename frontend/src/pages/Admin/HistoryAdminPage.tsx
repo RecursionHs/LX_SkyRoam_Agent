@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Tag, Typography, Space, Spin, Button, message } from 'antd';
+import { Card, Table, Tag, Typography, Space, Spin, Button, message, Grid } from 'antd';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
 import { authFetch } from '../../utils/auth';
 import { useNavigate } from 'react-router-dom';
@@ -24,6 +24,7 @@ const HistoryAdminPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState<TravelPlan[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const screens = Grid.useBreakpoint();
 
   const fetchPlans = async () => {
     setLoading(true);
@@ -88,13 +89,11 @@ const HistoryAdminPage: React.FC = () => {
   };
 
   const columns = [
-    { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
-    { title: '用户ID', dataIndex: 'user_id', key: 'user_id', width: 100 },
-    { title: '标题', dataIndex: 'title', key: 'title', width: 300 },
-    { title: '目的地', dataIndex: 'destination', key: 'destination', width: 140 },
-    { title: '开始', dataIndex: 'start_date', key: 'start_date', width: 180 },
-    { title: '结束', dataIndex: 'end_date', key: 'end_date', width: 180 },
-    { title: '天数', dataIndex: 'duration_days', key: 'duration_days', width: 80 },
+    { title: 'ID', dataIndex: 'id', key: 'id' },
+    { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
+    { title: '目的地', dataIndex: 'destination', key: 'destination', ellipsis: true, responsive: ['sm'] },
+    { title: '开始/结束', key: 'dates', responsive: ['md'], render: (_: any, r: TravelPlan) => `${r.start_date} ~ ${r.end_date}` },
+    { title: '天数', dataIndex: 'duration_days', key: 'duration_days', responsive: ['lg'] },
     { 
       title: '状态', 
       dataIndex: 'status', 
@@ -140,6 +139,8 @@ const HistoryAdminPage: React.FC = () => {
               dataSource={plans}
               rowSelection={rowSelection}
               pagination={{ pageSize: 10 }}
+              size={screens.xs ? 'small' : 'middle'}
+              scroll={{ x: 'max-content' }}
             />
           )}
         </Card>
