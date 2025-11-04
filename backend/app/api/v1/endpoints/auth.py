@@ -30,6 +30,7 @@ async def register(user_in: UserRegister, db: AsyncSession = Depends(get_async_d
         email=user_in.email,  # 可为 None
         full_name=user_in.full_name,
         hashed_password=get_password_hash(user_in.password),
+        role='user',
         is_verified=True,
         is_active=True,
     )

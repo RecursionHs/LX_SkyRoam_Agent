@@ -20,6 +20,9 @@ class User(BaseModel):
     # 认证信息
     hashed_password = Column(String(255), nullable=False)
     
+    # 角色权限
+    role = Column(String(20), nullable=False, default="user")  # admin, user
+    
     # 用户偏好
     preferences = Column(Text, nullable=True)  # JSON格式存储偏好设置
     travel_history = Column(Text, nullable=True)  # JSON格式存储旅行历史

@@ -27,6 +27,7 @@ class UserOut(BaseModel):
     username: str
     email: Optional[EmailStr] = None
     full_name: Optional[str] = None
+    role: str
     is_verified: bool
 
     class Config:

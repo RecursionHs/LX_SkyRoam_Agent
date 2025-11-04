@@ -157,9 +157,9 @@ async def create_default_users():
             if not user_1_exists:
                 # 创建ID=1的默认用户
                 await conn.execute(text("""
-                    INSERT INTO users (id, username, email, full_name, hashed_password, is_verified, is_active, created_at, updated_at) 
+                    INSERT INTO users (id, username, email, full_name, hashed_password, role, is_verified, is_active, created_at, updated_at) 
                     VALUES 
-                    (1, 'admin', 'admin@lxai.com', '系统管理员', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj8f8f8f8f8f', true, true, NOW(), NOW())
+                    (1, 'admin', 'admin@lxai.com', '系统管理员', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj8f8f8f8f8f', 'admin', true, true, NOW(), NOW())
                     ON CONFLICT (id) DO NOTHING
                 """))
                 logger.info("✅ ID=1的默认用户创建成功")
@@ -173,9 +173,9 @@ async def create_default_users():
             if not user_2_exists:
                 # 创建ID=2的演示用户
                 await conn.execute(text("""
-                    INSERT INTO users (id, username, email, full_name, hashed_password, is_verified, is_active, created_at, updated_at) 
+                    INSERT INTO users (id, username, email, full_name, hashed_password, role, is_verified, is_active, created_at, updated_at) 
                     VALUES 
-                    (2, 'demo_user', 'demo@lxai.com', '演示用户', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj8f8f8f8f8f', true, true, NOW(), NOW())
+                    (2, 'demo_user', 'demo@lxai.com', '演示用户', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj8f8f8f8f8f', 'user', true, true, NOW(), NOW())
                     ON CONFLICT (id) DO NOTHING
                 """))
                 logger.info("✅ ID=2的演示用户创建成功")

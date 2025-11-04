@@ -61,8 +61,12 @@ async def get_current_user(
 
 
 def is_admin(user: User) -> bool:
-    """简易管理员判断：ID=1 或 用户名为 admin"""
+    """基于角色的管理员判断：role=admin 优先；兼容旧逻辑"""
     try:
+        role = getattr(user, "role", None)
+        if role is not None:
+            return role == "admin"
+        # 兼容未有角色字段时的旧逻辑
         return getattr(user, "id", None) == 1 or getattr(user, "username", "") == "admin"
     except Exception:
         return False
