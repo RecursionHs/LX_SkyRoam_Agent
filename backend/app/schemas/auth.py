@@ -31,3 +31,15 @@ class UserOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UserUpdate(BaseModel):
+    """用户资料更新请求体"""
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = None
+
+
+class ChangePassword(BaseModel):
+    """用户修改密码请求体"""
+    old_password: str
+    new_password: str = Field(..., min_length=6, max_length=128)
