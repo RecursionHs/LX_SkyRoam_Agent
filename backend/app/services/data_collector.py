@@ -697,7 +697,7 @@ class DataCollector:
                     
                     # 根据出行方式收集不同的交通数据
                     if transportation_mode == "car":
-                        # 自驾出行，获取驾车路线
+                        # selves出行，获取驾车路线
                         await self._collect_driving_data(departure, destination, transport_data)
                     elif transportation_mode == "flight":
                         # 飞机出行，获取机场交通信息
@@ -1303,6 +1303,7 @@ class DataCollector:
                         "liked_count": note_data.get("liked_count", 0),
                         "location": note_data.get("location", ""),
                         "relevance_score": note_data.get("relevance_score", 0.0),
+                        "url": note_data.get("url", "")
                     }
                     notes_data.append(note_dict)
                 except Exception as e:

@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from loguru import logger
 import httpx
 from app.core.config import settings
+from app.core.redis import cache_key, get_cache, set_cache
 
 
 class AmapMCPClient:
@@ -702,10 +703,21 @@ class AmapMCPClient:
         return recommendations
     
     async def geocode(self, address: str, city: str = "") -> Optional[Dict[str, Any]]:
-        """地理编码 - 地址转坐标"""
+        """地理编码 - 地址转坐标（带长期缓存）"""
         try:
+            # 规范化参数并构造缓存键
+            addr_norm = str(address).strip()
+            city_norm = str(city or "").strip()
+            cache_key_str = cache_key("amap:geocode", addr_norm, city_norm)
+
+            # 命中缓存直接返回（即使API密钥缺失也可用）
+            cached = await get_cache(cache_key_str)
+            if cached:
+                logger.info(f"地理编码命中缓存: address={addr_norm}, city={city_norm}")
+                return cached
+
             if not self.api_key:
-                logger.warning("高德地图API密钥未配置")
+                logger.warning("高德地图API密钥未配置，且无缓存可用")
                 return None
             
             # 构建 MCP 请求
@@ -714,15 +726,24 @@ class AmapMCPClient:
                 "id": 1,
                 "method": "geocode",
                 "params": {
-                    "address": address,
-                    "city": city
+                    "address": addr_norm,
+                    "city": city_norm
                 }
             }
             
+            # 发起请求
+            result = None
             if self.mode == "sse":
-                return await self._geocode_sse(mcp_request)
+                result = await self._geocode_sse(mcp_request)
             else:
-                return await self._geocode_http(mcp_request)
+                result = await self._geocode_http(mcp_request)
+
+            # 存入长期缓存
+            if result:
+                await set_cache(cache_key_str, result, ttl=GEOCODE_CACHE_TTL)
+                logger.info(f"地理编码结果已缓存90天: address={addr_norm}, city={city_norm}")
+            
+            return result
                 
         except Exception as e:
             logger.error(f"高德地图地理编码失败: {e}")
@@ -826,3 +847,5 @@ class AmapMCPClient:
     async def close(self):
         """关闭HTTP客户端"""
         await self.http_client.aclose()
+
+GEOCODE_CACHE_TTL = 60 * 60 * 24 * 90  # 90天长期缓存

@@ -1109,9 +1109,12 @@ class PlanGenerator:
                 "weather_info": weather_info,
                 "destination_info": destination_info,
                 "duration_days": plan.duration_days,
-                "generated_at": datetime.utcnow().isoformat()
+                "generated_at": datetime.utcnow().isoformat(),
+                "xiaohongshu_notes": (raw_data.get("xiaohongshu_notes", []) if raw_data else [])
             }
             
+            logger.warning(f"生成单个方案成功: {plan_data}")
+
             return plan_data
             
         except Exception as e:
@@ -1990,7 +1993,7 @@ class PlanGenerator:
 
 请直接返回JSON格式结果。
 """
-            logger.warning(f"User prompt: {user_prompt}")
+            # logger.warning(f"User prompt: {user_prompt}")
 
             response = await openai_client.generate_text(
                 prompt=user_prompt,
@@ -2040,7 +2043,8 @@ class PlanGenerator:
                         "title": f"{accommodation.get('type', f'方案{i+1}')}的{plan.destination}之旅",
                         "description": f"精心规划的{plan.duration_days}天{plan.destination}旅行，包含优质住宿、特色美食、便捷交通和精彩景点。",
                         "duration_days": plan.duration_days,
-                        "generated_at": datetime.utcnow().isoformat()
+                        "generated_at": datetime.utcnow().isoformat(),
+                        "xiaohongshu_notes": processed_data.get("xiaohongshu_notes", [])
                     }
                     
                     # 添加航班和酒店信息
