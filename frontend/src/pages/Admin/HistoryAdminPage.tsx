@@ -90,7 +90,7 @@ const HistoryAdminPage: React.FC = () => {
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
     { title: '用户ID', dataIndex: 'user_id', key: 'user_id', width: 100 },
-    { title: '标题', dataIndex: 'title', key: 'title' },
+    { title: '标题', dataIndex: 'title', key: 'title', width: 300 },
     { title: '目的地', dataIndex: 'destination', key: 'destination', width: 140 },
     { title: '开始', dataIndex: 'start_date', key: 'start_date', width: 180 },
     { title: '结束', dataIndex: 'end_date', key: 'end_date', width: 180 },

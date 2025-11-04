@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Tag, Typography, Space, Spin, Button, message } from 'antd';
+import { Card, Table, Tag, Typography, Space, Spin, Button, message, Modal, Form, Input, Popconfirm } from 'antd';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
 import { authFetch } from '../../utils/auth';
 
@@ -17,6 +17,14 @@ interface UserItem {
 const UsersAdminPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<UserItem[]>([]);
+  // 编辑用户名
+  const [editVisible, setEditVisible] = useState(false);
+  const [editTarget, setEditTarget] = useState<UserItem | null>(null);
+  const [editForm] = Form.useForm();
+  // 重置密码
+  const [resetVisible, setResetVisible] = useState(false);
+  const [resetTarget, setResetTarget] = useState<UserItem | null>(null);
+  const [resetForm] = Form.useForm();
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -35,49 +43,74 @@ const UsersAdminPage: React.FC = () => {
     fetchUsers();
   }, []);
 
-  const handleEditUsername = async (user: UserItem) => {
-    const newUsername = window.prompt('输入新用户名', user.username);
-    if (!newUsername || newUsername === user.username) return;
+  const openEditUsername = (user: UserItem) => {
+    setEditTarget(user);
+    setEditVisible(true);
+    editForm.setFieldsValue({ username: user.username });
+  };
+
+  const submitEditUsername = async () => {
     try {
-      const res = await authFetch(buildApiUrl(API_ENDPOINTS.USER_DETAIL(user.id)), {
+      const values = await editForm.validateFields();
+      const newUsername = values.username?.trim();
+      if (!editTarget || !newUsername) return;
+      const res = await authFetch(buildApiUrl(API_ENDPOINTS.USER_DETAIL(editTarget.id)), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: newUsername }),
       });
       if (res.ok) {
         message.success('用户名已更新');
+        setEditVisible(false);
+        setEditTarget(null);
         fetchUsers();
       } else {
         const err = await res.json();
         message.error(err?.detail || '更新失败');
       }
     } catch (e) {
+      // 表单校验或请求失败
+      if ((e as any)?.errorFields) return;
       message.error('请求失败');
     }
   };
 
-  const handleResetPassword = async (user: UserItem) => {
-    const newPassword = window.prompt('输入新密码');
-    if (!newPassword) return;
+  const openResetPassword = (user: UserItem) => {
+    setResetTarget(user);
+    setResetVisible(true);
+    resetForm.resetFields();
+  };
+
+  const submitResetPassword = async () => {
     try {
-      const res = await authFetch(buildApiUrl(API_ENDPOINTS.USER_RESET_PASSWORD(user.id)), {
+      const values = await resetForm.validateFields();
+      const pwd = values.new_password;
+      const confirm = values.confirm_password;
+      if (pwd !== confirm) {
+        message.error('两次输入的密码不一致');
+        return;
+      }
+      if (!resetTarget) return;
+      const res = await authFetch(buildApiUrl(API_ENDPOINTS.USER_RESET_PASSWORD(resetTarget.id)), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ new_password: newPassword }),
+        body: JSON.stringify({ new_password: pwd }),
       });
       if (res.ok) {
         message.success('密码已重置');
+        setResetVisible(false);
+        setResetTarget(null);
       } else {
         const err = await res.json();
         message.error(err?.detail || '重置失败');
       }
     } catch (e) {
+      if ((e as any)?.errorFields) return;
       message.error('请求失败');
     }
   };
 
   const handleDeleteUser = async (user: UserItem) => {
-    if (!window.confirm(`确认删除用户 ${user.username} ?`)) return;
     try {
       const res = await authFetch(buildApiUrl(API_ENDPOINTS.USER_DETAIL(user.id)), {
         method: 'DELETE',
@@ -120,9 +153,11 @@ const UsersAdminPage: React.FC = () => {
       key: 'actions',
       render: (_: any, record: UserItem) => (
         <Space>
-          <Button type="link" onClick={() => handleEditUsername(record)}>编辑用户名</Button>
-          <Button type="link" onClick={() => handleResetPassword(record)}>重置密码</Button>
-          <Button type="link" danger onClick={() => handleDeleteUser(record)}>删除</Button>
+          <Button type="link" onClick={() => openEditUsername(record)}>编辑用户名</Button>
+          <Button type="link" onClick={() => openResetPassword(record)}>重置密码</Button>
+          <Popconfirm title={`确认删除用户 ${record.username} ?`} onConfirm={() => handleDeleteUser(record)}>
+            <Button type="link" danger>删除</Button>
+          </Popconfirm>
         </Space>
       )
     }
@@ -149,6 +184,41 @@ const UsersAdminPage: React.FC = () => {
           )}
         </Card>
       </Space>
+
+      {/* 编辑用户名 Modal */}
+      <Modal
+        title="编辑用户名"
+        open={editVisible}
+        onOk={submitEditUsername}
+        onCancel={() => { setEditVisible(false); setEditTarget(null); }}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={editForm} layout="vertical">
+          <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}> 
+            <Input placeholder="请输入新的用户名" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 重置密码 Modal */}
+      <Modal
+        title="重置密码"
+        open={resetVisible}
+        onOk={submitResetPassword}
+        onCancel={() => { setResetVisible(false); setResetTarget(null); }}
+        okText="重置"
+        cancelText="取消"
+      >
+        <Form form={resetForm} layout="vertical">
+          <Form.Item name="new_password" label="新密码" rules={[{ required: true, message: '请输入新密码' }, { min: 6, message: '密码至少6位' }]}> 
+            <Input.Password placeholder="请输入新密码" />
+          </Form.Item>
+          <Form.Item name="confirm_password" label="确认密码" rules={[{ required: true, message: '请再次输入新密码' }]}> 
+            <Input.Password placeholder="请再次输入新密码" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };
