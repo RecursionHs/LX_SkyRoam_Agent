@@ -62,6 +62,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const menuItems = baseMenuItems;
 
   const handleMenuClick = (key: string) => {
+    // 未登录时，拦截“创建计划”并跳转登录
+    if (key === '/plan' && !token) {
+      navigate('/login');
+      setMobileMenuVisible(false);
+      return;
+    }
     navigate(key);
     setMobileMenuVisible(false);
   };
