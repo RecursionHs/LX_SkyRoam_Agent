@@ -24,6 +24,7 @@ class AmapMCPHTTPServer:
         self.app = web.Application()
         self.api_key = os.getenv('AMAP_API_KEY')
         self.port = int(os.getenv('MCP_HTTP_PORT', '3002'))
+        self.host = os.getenv('MCP_HTTP_HOST', '0.0.0.0')
         self.session = None
         self.setup_routes()
     
@@ -533,14 +534,14 @@ class AmapMCPHTTPServer:
         # 启动服务器
         runner = web.AppRunner(self.app)
         await runner.setup()
-        site = web.TCPSite(runner, 'localhost', self.port)
+        site = web.TCPSite(runner, self.host, self.port)
         await site.start()
         
         logger.info(f'✅ 高德地图 MCP HTTP 服务器启动成功!')
-        logger.info(f'📍 服务器地址: http://localhost:{self.port}')
-        logger.info(f'🔍 健康检查: http://localhost:{self.port}/health')
-        logger.info(f'🛠️  工具列表: http://localhost:{self.port}/tools')
-        logger.info(f'📡 MCP 接口: http://localhost:{self.port}/mcp')
+        logger.info(f'📍 服务器地址: http://{self.host}:{self.port}')
+        logger.info(f'🔍 健康检查: http://{self.host}:{self.port}/health')
+        logger.info(f'🛠️  工具列表: http://{self.host}:{self.port}/tools')
+        logger.info(f'📡 MCP 接口: http://{self.host}:{self.port}/mcp')
         logger.info('按 Ctrl+C 停止服务器')
         
         # 保持服务器运行
