@@ -1,0 +1,26 @@
+# VCS / editor
+.git
+.gitignore
+.vscode
+.idea
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.swp
+
+# Envs
+.env
+.env.*
+
+# Data & logs
+logs
+uploads
+
+# Tests (not needed in image)
+tests
+
+# Node leftovers
+node_modules
