@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # PostgreSQL 数据库
+  # PostgreSQL 数据库（仅内网）
   postgres:
     image: postgres:15
     container_name: skyroam-postgres
@@ -9,26 +9,22 @@ services:
       POSTGRES_DB: skyroam
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 123456
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - skyroam-network
 
-  # Redis 缓存
+  # Redis 缓存（仅内网）
   redis:
     image: redis:7-alpine
     container_name: skyroam-redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
       - skyroam-network
 
-  # 后端 API 服务（开发镜像，支持热更新）
+  # 后端 API 服务（仅内网，前端容器通过服务名访问）
   backend:
     build:
       context: ./backend
@@ -37,14 +33,11 @@ services:
     env_file:
       - ./.env.docker
     environment:
-      # 保证容器内连接到 compose 网络内的服务名
       DATABASE_URL: postgresql://postgres:123456@postgres:5432/skyroam
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       PORT: 8001
-    ports:
-      - "8001:8001"
     depends_on:
       - postgres
       - redis
@@ -55,7 +48,7 @@ services:
       - skyroam-network
     command: bash -lc "uvicorn main:app --host 0.0.0.0 --port ${PORT} --reload"
 
-  # Celery Worker
+  # Celery Worker（仅内网）
   celery-worker:
     build:
       context: ./backend
@@ -78,7 +71,7 @@ services:
       - skyroam-network
     command: celery -A app.core.celery worker --loglevel=info
 
-  # Celery Beat (定时任务)
+  # Celery Beat（仅内网）
   celery-beat:
     build:
       context: ./backend
@@ -101,14 +94,12 @@ services:
       - skyroam-network
     command: celery -A app.core.celery beat --loglevel=info
 
-  # Flower (Celery 监控)
+  # Flower（仅内网）
   flower:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: skyroam-flower
-    ports:
-      - "5555:5555"
     env_file:
       - ./.env.docker
     environment:
@@ -120,19 +111,18 @@ services:
       - skyroam-network
     command: celery -A app.core.celery flower --port=5555
 
-  # 前端应用（开发镜像，用 CRA dev server）
+  # 前端应用（唯一对外暴露端口）
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: skyroam-frontend
     environment:
-      # 在容器网络中访问后端，用服务名，不用 localhost
       REACT_APP_API_URL: http://backend:8001
       HOST: 0.0.0.0
       PORT: 3000
     ports:
-      - "3000:3000"
+      - "13000:3000"
     depends_on:
       - backend
     volumes:
@@ -141,6 +131,47 @@ services:
     networks:
       - skyroam-network
     command: npm start
+
+  # 高德 MCP HTTP 服务（Python）
+  amap-mcp-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: skyroam-amap-mcp
+    env_file:
+      - ./.env.docker
+    environment:
+      MCP_HTTP_PORT: 3002
+      MCP_HTTP_HOST: 0.0.0.0
+    depends_on:
+      - backend
+    volumes:
+      - ./backend:/app
+      - ./logs:/app/logs
+    networks:
+      - skyroam-network
+    ports:
+      - "13002:3002"
+    command: python mcp_http_server_amap.py
+
+  # 小红书 API 服务
+  xhs-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: skyroam-xhs-api
+    env_file:
+      - ./.env.docker
+    depends_on:
+      - backend
+    volumes:
+      - ./backend:/app
+      - ./logs:/app/logs
+    networks:
+      - skyroam-network
+    ports:
+      - "18002:8002"
+    command: bash -lc "uvicorn xhs_api_server:app --host 0.0.0.0 --port 8002 --log-level info"
 
 volumes:
   postgres_data:

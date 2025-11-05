@@ -1,62 +1,58 @@
 @echo off
-chcp 65001 >nul
+setlocal enableextensions
 
-echo 🚀 启动 LX SkyRoam Agent...
-
-REM 检查Docker是否安装
-docker --version >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Docker 未安装，请先安装 Docker
-    pause
-    exit /b 1
+REM 检查 Docker 是否安装
+where docker >nul 2>&1
+if %errorlevel% neq 0 (
+  echo 未检测到 Docker，請先安裝 Docker Desktop。
+  exit /b 1
 )
 
-REM 检查Docker Compose是否安装（使用插件命令 `docker compose`）
+REM 检查 docker compose 是否可用（现代语法）
 docker compose version >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Docker Compose 未安装或不可用，请安装 Docker Desktop 或 Compose 插件
-    pause
-    exit /b 1
+if %errorlevel% neq 0 (
+  echo 未检测到 docker compose，請更新到最新版 Docker Desktop。
+  exit /b 1
 )
 
-REM 创建必要的目录
-echo 📁 创建必要的目录...
-if not exist "logs" mkdir logs
-if not exist "uploads" mkdir uploads
+REM 创建必要目录
+if not exist logs mkdir logs
+if not exist backend\logs mkdir backend\logs
+if not exist backend\uploads mkdir backend\uploads
 
-REM 检查容器环境配置文件（优先使用 .env.docker）
-if not exist ".env.docker" (
-    echo ⚠️  未检测到 .env.docker，默认将直接使用 compose 中的 environment 配置
-    echo    如需自定义，请创建 .env.docker 并与 docker-compose.yml 对齐
+REM 环境文件提示（优先使用 .env.docker）
+if not exist .env.docker (
+  echo 提示：未找到 .env.docker，將使用默認環境變量。
 )
 
-REM 启动服务
-echo 🐳 启动 Docker 服务...
+REM 启动服务（含构建）
+echo 啟動容器服務（含構建）...
 docker compose up -d --build
 
-REM 等待服务启动
-echo ⏳ 等待服务启动...
-timeout /t 10 /nobreak >nul
+REM 短暫等待
+ping -n 5 127.0.0.1 >nul
 
-REM 检查服务状态
-echo 🔍 检查服务状态...
+echo 容器狀態：
 docker compose ps
 
-REM 显示访问信息
 echo.
-echo ✅ LX SkyRoam Agent 启动完成！
-echo.
-echo 📱 前端应用: http://localhost:3000
-echo 🔧 后端API: http://localhost:8001
-echo 📚 API文档: http://localhost:8001/docs
-echo 🌸 Celery监控: http://localhost:5555
-echo.
-echo 📝 日志查看:
-echo    docker compose logs -f backend
-echo    docker compose logs -f frontend
-echo.
-echo 🛑 停止服务:
-echo    docker compose down
-echo.
+echo 服務已啟動：
+echo - 前端（Web）：http://localhost:13000
+echo - 高德 MCP HTTP：http://localhost:13002
+echo - 小紅書 API：http://localhost:18002
 
-pause
+echo.
+echo 說明：
+echo - 後端主 API、Postgres、Redis、Celery/Flower 僅在容器網絡內可訪問。
+echo - 容器內互通使用服務名：backend:8001，amap-mcp-api:3002，xhs-api:8002。
+
+echo.
+echo 常用操作：
+echo - 查看前端日志：docker compose logs -f frontend
+echo - 查看後端日志：docker compose logs -f backend
+echo - 查看 Amap MCP 日志：docker compose logs -f amap-mcp-api
+echo - 查看 XHS API 日志：docker compose logs -f xhs-api
+echo - 停止所有服務：docker compose down
+
+echo.
+endlocal
