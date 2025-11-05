@@ -774,6 +774,9 @@ class DataCollector:
 
         interval_seconds = 1
 
+        # 并发启动小红书数据收集任务（不受 MCP 并发限制）
+        xhs_task = asyncio.create_task(self.collect_xiaohongshu_data(destination))
+
         try:
             data["flights"] = await self.collect_flight_data(departure, destination, start_date, end_date)
         except Exception as e:
@@ -811,9 +814,9 @@ class DataCollector:
             data["transportation"] = []
         await asyncio.sleep(interval_seconds)
 
+        # 等待小红书并发任务完成
         try:
-            # 收集小红书数据
-            data["xiaohongshu_notes"] = await self.collect_xiaohongshu_data(destination)
+            data["xiaohongshu_notes"] = await xhs_task
         except Exception as e:
             logger.exception(f"小红书数据收集失败: {e}")
             data["xiaohongshu_notes"] = []
