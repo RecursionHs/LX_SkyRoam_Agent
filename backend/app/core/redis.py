@@ -5,6 +5,7 @@ Redis配置和连接管理
 import redis.asyncio as redis
 from redis.asyncio import ConnectionPool
 from loguru import logger
+import asyncio
 
 from app.core.config import settings
 
@@ -18,19 +19,27 @@ async def init_redis():
     global redis_pool, redis_client
     
     try:
-        # 创建连接池
+        # 创建连接池（增加连接与读写超时，避免阻塞）
         redis_pool = ConnectionPool.from_url(
             settings.REDIS_URL,
             password=settings.REDIS_PASSWORD,
             max_connections=20,
-            retry_on_timeout=True
+            retry_on_timeout=True,
+            socket_connect_timeout=5,  # 连接超时（秒）
+            socket_timeout=5,          # 读写操作超时（秒）
+            health_check_interval=15   # 定期健康检查，避免长连接失效
         )
         
         # 创建Redis客户端
         redis_client = redis.Redis(connection_pool=redis_pool)
         
-        # 测试连接
+        logger.info("✅ Redis连接池创建成功")
+        # 测试连接（添加超时保护）
         await redis_client.ping()
+        try:
+            await asyncio.wait_for(redis_client.ping(), timeout=3)
+        except asyncio.TimeoutError:
+            raise TimeoutError("Redis ping 超时")
         logger.info("✅ Redis连接成功")
         
     except Exception as e:
