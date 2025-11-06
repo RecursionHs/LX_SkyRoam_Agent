@@ -124,16 +124,19 @@ class AgentService:
         
         logger.info(f"开始收集 {plan.destination} 的各类数据（每个任务间隔 {interval_seconds}s 启动）")
 
-        # 将任务与对应的section键关联，便于增量更新
+        # 将任务与对应的section键关联，便于增量更新（缺少出发地则跳过航班与交通）
         task_specs = [
-            ("flights", lambda: self.data_collector.collect_flight_data(plan.departure, plan.destination, plan.start_date, plan.end_date)),
             ("hotels", lambda: self.data_collector.collect_hotel_data(plan.destination, plan.start_date, plan.end_date)),
             ("attractions", lambda: self.data_collector.collect_attraction_data(plan.destination)),
             ("weather", lambda: self.data_collector.collect_weather_data(plan.destination, plan.start_date, plan.end_date)),
             ("restaurants", lambda: self.data_collector.collect_restaurant_data(plan.destination)),
-            ("transportation", lambda: self.data_collector.collect_transportation_data(plan.departure, plan.destination, plan.transportation)),
             ("xiaohongshu_notes", lambda: self.data_collector.collect_xiaohongshu_data(plan.destination)),
         ]
+        if plan.departure:
+            task_specs.insert(0, ("flights", lambda: self.data_collector.collect_flight_data(plan.departure, plan.destination, plan.start_date, plan.end_date)))
+            task_specs.append(("transportation", lambda: self.data_collector.collect_transportation_data(plan.departure, plan.destination, plan.transportation)))
+        else:
+            logger.info("未提供出发地，跳过航班与交通数据收集以提升速度")
 
         # 任务包装：返回(key, result, error)
         async def run_with_key(key: str, factory):

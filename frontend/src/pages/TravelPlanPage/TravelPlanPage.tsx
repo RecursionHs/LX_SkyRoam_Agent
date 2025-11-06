@@ -52,7 +52,7 @@ const { Step } = Steps;
 // const { CheckboxGroup } = Checkbox; // 暂时不使用
 
 interface TravelRequest {
-  departure: string;  // 出发地
+  departure?: string;  // 出发地（可选）
   destination: string;
   dateRange: [dayjs.Dayjs, dayjs.Dayjs];
   budget: number;
@@ -195,8 +195,8 @@ const TravelPlanPage: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: `${values.departure} → ${values.destination} 旅行计划`, // 自动生成标题
-          departure: values.departure,
+          title: (values.departure ? `${values.departure} → ` : '') + `${values.destination} 旅行计划`,
+          departure: values.departure || null,
           destination: values.destination,
           start_date: values.dateRange[0].format('YYYY-MM-DD HH:mm:ss'),
           end_date: values.dateRange[1].format('YYYY-MM-DD HH:mm:ss'),
@@ -803,7 +803,6 @@ const TravelPlanPage: React.FC = () => {
                 <Form.Item
                   name="departure"
                   label="出发地"
-                  rules={[{ required: true, message: '请输入出发地' }]}
                 >
                   <Input 
                     placeholder="请输入出发地" 

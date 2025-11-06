@@ -2,12 +2,23 @@
  * API 配置
  */
 
-// API 基础URL
-export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8001/api/v1';
+// API 基础URL（兼容 REACT_APP_API_BASE_URL 与 REACT_APP_API_URL）
+const RAW_API_BASE =
+  process.env.REACT_APP_API_BASE_URL ||
+  process.env.REACT_APP_API_URL ||
+  'http://localhost:8001';
+
+// 规范化基础路径，确保包含 /api/v1
+const normalizedBase = RAW_API_BASE.endsWith('/api/v1')
+  ? RAW_API_BASE
+  : `${RAW_API_BASE.replace(/\/$/, '')}/api/v1`;
+
+export const API_BASE_URL = normalizedBase;
 
 // 调试信息
 console.log('API_BASE_URL:', API_BASE_URL);
 console.log('REACT_APP_API_BASE_URL:', process.env.REACT_APP_API_BASE_URL);
+console.log('REACT_APP_API_URL:', process.env.REACT_APP_API_URL);
 
 // API 端点
 export const API_ENDPOINTS = {

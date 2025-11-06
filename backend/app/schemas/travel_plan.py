@@ -11,7 +11,7 @@ class TravelPlanBase(BaseModel):
     """旅行计划基础模式"""
     title: str = Field(..., description="计划标题")
     description: Optional[str] = Field(None, description="计划描述")
-    departure: str = Field(..., description="出发地")
+    departure: Optional[str] = Field(None, description="出发地")
     destination: str = Field(..., description="目的地")
     start_date: datetime = Field(..., description="开始日期")
     end_date: datetime = Field(..., description="结束日期")

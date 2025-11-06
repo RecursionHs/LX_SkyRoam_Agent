@@ -17,7 +17,7 @@ class TravelPlan(BaseModel):
     description = Column(Text, nullable=True)
     
     # 旅行参数
-    departure = Column(String(100), nullable=False)  # 出发地
+    departure = Column(String(100), nullable=True)  # 出发地（可选）
     destination = Column(String(100), nullable=False)
     start_date = Column(DateTime, nullable=False)
     end_date = Column(DateTime, nullable=False)
