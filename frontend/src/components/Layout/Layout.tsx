@@ -7,7 +7,8 @@ import {
   InfoCircleOutlined,
   MenuOutlined,
   RocketOutlined,
-  UserOutlined
+  UserOutlined,
+  EnvironmentOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import './Layout.css';
@@ -56,6 +57,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   // 嵌入式菜单：将“创建计划”移出菜单作为CTA按钮
   const baseMenuItems = [
     { key: '/', label: '首页', icon: <HomeOutlined /> },
+    { key: '/destinations', label: '目的地', icon: <EnvironmentOutlined /> },
     { key: '/history', label: '历史记录', icon: <HistoryOutlined /> },
     { key: '/about', label: '关于我们', icon: <InfoCircleOutlined /> },
   ];

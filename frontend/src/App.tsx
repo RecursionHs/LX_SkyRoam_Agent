@@ -17,6 +17,7 @@ import RegisterPage from './pages/RegisterPage/RegisterPage';
 import RequireAdmin from './components/Auth/RequireAdmin';
 import UsersAdminPage from './pages/Admin/UsersAdminPage';
 import HistoryAdminPage from './pages/Admin/HistoryAdminPage';
+import DestinationsPage from './pages/DestinationsPage/DestinationsPage';
 
 const App: React.FC = () => {
   return (
@@ -30,6 +31,7 @@ const App: React.FC = () => {
               <Route path="/plan" element={<TravelPlanPage />} />
               <Route path="/plan/:id" element={<PlanDetailPage />} />
               <Route path="/history" element={<HistoryPage />} />
+              <Route path="/destinations" element={<DestinationsPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
