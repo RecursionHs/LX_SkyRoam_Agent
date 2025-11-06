@@ -2,10 +2,10 @@
 旅行计划API端点
 """
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, date
 
 from app.core.database import get_async_db, AsyncSessionLocal
 from app.schemas.travel_plan import (
@@ -81,6 +81,13 @@ async def get_travel_plans(
     limit: int = 100,
     user_id: Optional[int] = None,
     status: Optional[str] = None,
+    keyword: Optional[str] = None,
+    min_score: Optional[float] = None,
+    max_score: Optional[float] = None,
+    created_from: Optional[datetime] = Query(None, description="创建时间起(ISO8601, 支持Z)"),
+    created_to: Optional[datetime] = Query(None, description="创建时间止(ISO8601, 支持Z)"),
+    travel_from: Optional[date] = Query(None, description="出行日期起(YYYY-MM-DD)"),
+    travel_to: Optional[date] = Query(None, description="出行日期止(YYYY-MM-DD)"),
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -93,6 +100,13 @@ async def get_travel_plans(
         limit=limit,
         user_id=effective_user_id,
         status=status,
+        keyword=keyword,
+        min_score=min_score,
+        max_score=max_score,
+        created_from=created_from,
+        created_to=created_to,
+        travel_from=travel_from,
+        travel_to=travel_to,
     )
     return {
         "plans": plans,

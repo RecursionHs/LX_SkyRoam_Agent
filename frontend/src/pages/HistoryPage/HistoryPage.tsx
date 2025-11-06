@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Card, 
   List, 
@@ -10,7 +10,11 @@ import {
   Col,
   Empty,
   Spin,
-  Pagination
+  Pagination,
+  Input,
+  Select,
+  DatePicker,
+  Rate
 } from 'antd';
 import { 
   CalendarOutlined, 
@@ -22,6 +26,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
 import { authFetch } from '../../utils/auth';
+import dayjs from 'dayjs';
+import { useSearchParams } from 'react-router-dom';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -39,34 +45,97 @@ interface TravelPlan {
 
 const HistoryPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const latestReq = useRef(0);
+  // 初始值来自URL参数，避免刷新后丢失
+  const initialKeyword = searchParams.get('keyword') || '';
+  const initialMinScoreStr = searchParams.get('min_score');
+  const initialMinScore = initialMinScoreStr ? Number(initialMinScoreStr) : undefined;
+  const initialTravelFrom = searchParams.get('travel_from');
+  const initialTravelTo = searchParams.get('travel_to');
+  const initialRange = initialTravelFrom && initialTravelTo ? [dayjs(initialTravelFrom), dayjs(initialTravelTo)] : [];
+  const initialSkipStr = searchParams.get('skip');
+  const initialLimitStr = searchParams.get('limit');
+
   const [plans, setPlans] = useState<TravelPlan[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [total, setTotal] = useState(0);
   const pageSize = 6;
+  const initialPage = initialSkipStr ? (Math.floor(Number(initialSkipStr) / Number(initialLimitStr || pageSize)) + 1) : 1;
+  const [currentPage, setCurrentPage] = useState(initialPage);
+  const [total, setTotal] = useState(0);
+  const [keyword, setKeyword] = useState<string>(initialKeyword);
+  const [keywordInput, setKeywordInput] = useState<string>(initialKeyword);
+  const [minScore, setMinScore] = useState<number | undefined>(initialMinScore);
+  const [dateRange, setDateRange] = useState<any[]>(initialRange);
+
+  // 当筛选或分页变化时，把状态写入URL，防止刷新后丢失
+  useEffect(() => {
+    const params: Record<string, string> = {
+      skip: String((currentPage - 1) * pageSize),
+      limit: String(pageSize),
+    };
+    if (keyword && keyword.trim()) params.keyword = keyword.trim();
+    if (typeof minScore === 'number') params.min_score = String(minScore);
+    if (dateRange && dateRange.length === 2 && dateRange[0] && dateRange[1]) {
+      const fromStr = toDateStr(dateRange[0]);
+      const toStr = toDateStr(dateRange[1]);
+      if (fromStr) params.travel_from = fromStr;
+      if (toStr) params.travel_to = toStr;
+    }
+    setSearchParams(params, { replace: true });
+  }, [currentPage, keyword, minScore, dateRange]);
 
   useEffect(() => {
     fetchPlans();
-  }, [currentPage]);
+  }, [currentPage, keyword, minScore, dateRange]);
+
+  // 将日期转换为 YYYY-MM-DD 字符串（兼容 dayjs 与原生 Date）
+  const toDateStr = (d: any): string => {
+    if (!d) return '';
+    try {
+      const dj = (typeof d.isValid === 'function') ? d : dayjs(d);
+      if (!dj.isValid()) return '';
+      return dj.format('YYYY-MM-DD');
+    } catch {
+      return '';
+    }
+  };
 
   const fetchPlans = async () => {
+    const reqId = ++latestReq.current;
     try {
       setLoading(true);
+      const params = new URLSearchParams();
+      params.set('skip', String((currentPage - 1) * pageSize));
+      params.set('limit', String(pageSize));
+      if (keyword && keyword.trim()) params.set('keyword', keyword.trim());
+      if (typeof minScore === 'number') params.set('min_score', String(minScore));
+      if (dateRange && dateRange.length === 2 && dateRange[0] && dateRange[1]) {
+        const fromStr = toDateStr(dateRange[0]);
+        const toStr = toDateStr(dateRange[1]);
+        if (fromStr) params.set('travel_from', fromStr);
+        if (toStr) params.set('travel_to', toStr);
+      }
+
       const response = await authFetch(
-        buildApiUrl(`/travel-plans/?skip=${(currentPage - 1) * pageSize}&limit=${pageSize}`)
+        buildApiUrl(`/travel-plans/?${params.toString()}`)
       );
-      
       if (!response.ok) {
         throw new Error('获取历史记录失败');
       }
-      
       const data = await response.json();
-      setPlans(data.plans || data); // 兼容新旧格式
-      setTotal(data.total || data.length); // 使用API返回的总数
+      if (reqId !== latestReq.current) return; // 只有最新请求可写状态，防止旧数据覆盖
+      const list = Array.isArray(data?.plans) ? data.plans : (Array.isArray(data) ? data : []);
+      const totalCount = typeof data?.total === 'number' ? data.total : (Array.isArray(data) ? data.length : 0);
+      setPlans(list);
+      setTotal(totalCount);
     } catch (error) {
+      if (reqId !== latestReq.current) return;
       console.error('获取历史记录失败:', error);
+      setPlans([]);
+      setTotal(0);
     } finally {
-      setLoading(false);
+      if (reqId === latestReq.current) setLoading(false);
     }
   };
 
@@ -140,6 +209,41 @@ const HistoryPage: React.FC = () => {
         </Paragraph>
       </div>
 
+      {/* 新增：搜索过滤条 */}
+      <Card style={{ marginBottom: 16 }}>
+        <Space wrap size="middle">
+          <Input.Search
+            placeholder="关键词（标题/目的地/描述）"
+            allowClear
+            style={{ width: 280 }}
+            value={keywordInput}
+            onChange={(e) => { setKeywordInput(e.target.value); }}
+            onSearch={(v) => { const t = v.trim(); setKeyword(t); setKeywordInput(t); setCurrentPage(1); }}
+          />
+          <Select
+            placeholder="评分"
+            allowClear
+            style={{ width: 160 }}
+            value={minScore}
+            onChange={(v) => { setMinScore(v as number | undefined); setCurrentPage(1); }}
+            options={[
+              { value: 1, label: '1星及以上' },
+              { value: 2, label: '2星及以上' },
+              { value: 3, label: '3星及以上' },
+              { value: 4, label: '4星及以上' },
+              { value: 5, label: '5星' },
+            ]}
+          />
+          <DatePicker.RangePicker
+            value={dateRange as any}
+            onChange={(range) => { setDateRange(range || []); setCurrentPage(1); }}
+          />
+          <Button onClick={() => { setKeyword(''); setKeywordInput(''); setMinScore(undefined); setDateRange([]); setCurrentPage(1); }}>
+            重置
+          </Button>
+        </Space>
+      </Card>
+
       {plans.length === 0 ? (
         <Card>
           <Empty
@@ -211,14 +315,17 @@ const HistoryPage: React.FC = () => {
                         {formatDate(plan.start_date)} - {formatDate(plan.end_date)}
                       </Text>
                     </div>
-                    
+                    {/* 状态与评分显示 */}
                     <div>
-                      {getStatusTag(plan.status)}
-                      {plan.score && (
-                        <Tag color="orange">
-                          评分: {plan.score.toFixed(1)}
-                        </Tag>
-                      )}
+                      <Space>
+                        {getStatusTag(plan.status)}
+                        {typeof plan.score === 'number' && (
+                          <>
+                            <Tag color="orange">评分: {plan.score.toFixed(1)}</Tag>
+                            <Rate disabled allowHalf value={plan.score} style={{ fontSize: 14 }} />
+                          </>
+                        )}
+                      </Space>
                     </div>
                     
                     <div>
@@ -252,3 +359,7 @@ const HistoryPage: React.FC = () => {
 };
 
 export default HistoryPage;
+
+// 移除不再需要的整日 ISO 边界函数
+// const toISOStart = ...
+// const toISOEnd = ...

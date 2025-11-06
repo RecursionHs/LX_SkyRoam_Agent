@@ -1,10 +1,10 @@
 """
 旅行计划服务
 """
-
+from datetime import datetime, date, timezone
 from typing import List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import select, update, delete, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.models.travel_plan import TravelPlan, TravelPlanItem, TravelPlanRating
@@ -52,34 +52,92 @@ class TravelPlanService:
         skip: int = 0, 
         limit: int = 100,
         user_id: Optional[int] = None,
-        status: Optional[str] = None
+        status: Optional[str] = None,
+        keyword: Optional[str] = None,
+        min_score: Optional[float] = None,
+        max_score: Optional[float] = None,
+        created_from: Optional[datetime] = None,
+        created_to: Optional[datetime] = None,
+        travel_from: Optional[date] = None,
+        travel_to: Optional[date] = None,
     ) -> Tuple[List[TravelPlan], int]:
-        """获取旅行计划列表和总数"""
-        # 构建查询条件
+        """获取旅行计划列表和总数，支持筛选"""
         conditions = []
         if user_id:
             conditions.append(TravelPlan.user_id == user_id)
         if status:
             conditions.append(TravelPlan.status == status)
+        if keyword:
+            like = f"%{keyword}%"
+            conditions.append(or_(
+                TravelPlan.title.ilike(like),
+                TravelPlan.destination.ilike(like),
+                TravelPlan.description.ilike(like)
+            ))
+        if min_score is not None:
+            conditions.append(TravelPlan.score >= float(min_score))
+        if max_score is not None:
+            conditions.append(TravelPlan.score <= float(max_score))
+        # 统一将有时区的时间转换为UTC再去除时区，与数据库的UTC无时区字段比较
+        def _normalize(dt: Optional[datetime]) -> Optional[datetime]:
+            if not dt:
+                return None
+            try:
+                if dt.tzinfo is not None:
+                    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+                return dt
+            except Exception:
+                return None
         
-        # 获取总数
+        # 创建时间过滤（保持原逻辑）
+        dt_from = _normalize(created_from)
+        dt_to = _normalize(created_to)
+        if dt_from:
+            conditions.append(TravelPlan.created_at >= dt_from)
+        if dt_to:
+            conditions.append(TravelPlan.created_at <= dt_to)
+        
+        # 出行日期过滤：将纯日期转换为整日边界
+        def day_start(d: Optional[date]) -> Optional[datetime]:
+            if not d:
+                return None
+            try:
+                if isinstance(d, datetime):
+                    base = _normalize(d) or d
+                    return datetime(base.year, base.month, base.day, 0, 0, 0)
+                return datetime(d.year, d.month, d.day, 0, 0, 0)
+            except Exception:
+                return None
+        def day_end(d: Optional[date]) -> Optional[datetime]:
+            if not d:
+                return None
+            try:
+                if isinstance(d, datetime):
+                    base = _normalize(d) or d
+                    return datetime(base.year, base.month, base.day, 23, 59, 59, 999999)
+                return datetime(d.year, d.month, d.day, 23, 59, 59, 999999)
+            except Exception:
+                return None
+        
+        t_from = day_start(travel_from)
+        t_to = day_end(travel_to)
+        if t_from:
+            conditions.append(TravelPlan.end_date >= t_from)
+        if t_to:
+            conditions.append(TravelPlan.start_date <= t_to)
+        
         count_query = select(func.count(TravelPlan.id))
         if conditions:
             count_query = count_query.where(*conditions)
-        
         count_result = await self.db.execute(count_query)
         total = count_result.scalar()
         
-        # 获取数据
         query = select(TravelPlan).options(selectinload(TravelPlan.items))
         if conditions:
             query = query.where(*conditions)
-        
         query = query.offset(skip).limit(limit).order_by(TravelPlan.created_at.desc())
-        
         result = await self.db.execute(query)
         plans = result.scalars().all()
-        
         return plans, total
     
     async def get_travel_plan(self, plan_id: int) -> Optional[TravelPlan]:
