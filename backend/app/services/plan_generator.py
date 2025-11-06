@@ -698,6 +698,7 @@ class PlanGenerator:
                     processed_data.get('transportation', []),
                     plan,
                     preferences,
+                    raw_data,
                     attempts=3,
                     delay=1.0,
                     module_name="交通方案",
@@ -1825,7 +1826,8 @@ class PlanGenerator:
         self,
         transportation_data: List[Dict[str, Any]],
         plan: Any,
-        preferences: Optional[Dict[str, Any]] = None
+        preferences: Optional[Dict[str, Any]] = None,
+        raw_data: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """生成交通方案"""
         try:
@@ -1873,6 +1875,9 @@ class PlanGenerator:
 
 可用交通数据：
 {self._format_data_for_llm(transportation_data, 'transportation')}
+
+小红书真实用户旅行攻略：
+{self._format_xiaohongshu_data_for_prompt(raw_data.get('xiaohongshu_notes', []) if raw_data else [], plan.destination)}
 
 要求：
 1. 优先考虑用户指定的出行方式：{plan.transportation or '未指定'}
