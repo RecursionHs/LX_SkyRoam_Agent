@@ -436,7 +436,7 @@ const DestinationsPage: React.FC = () => {
                       </>
                     )}
                     <Space>
-                      <Button type="primary" onClick={() => navigate('/travel')}>去创建方案</Button>
+                      <Button type="primary" onClick={() => navigate('/plan')}>去创建方案</Button>
                     </Space>
                   </Space>
                 </Card>
