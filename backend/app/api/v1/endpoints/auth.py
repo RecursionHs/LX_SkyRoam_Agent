@@ -47,10 +47,8 @@ async def login(form: UserLogin, db: AsyncSession = Depends(get_async_db)):
     if not user or not verify_password(form.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
 
-    access_token_expires = timedelta(minutes=int(30))
     access_token = create_access_token(
         data={"sub": str(user.id)},
-        expires_delta=access_token_expires,
     )
     return Token(access_token=access_token)
 
