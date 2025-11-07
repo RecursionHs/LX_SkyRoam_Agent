@@ -382,13 +382,16 @@ const PlanDetailPage: React.FC = () => {
 
   // 格式化价格信息
   const formatPrice = (restaurant: any): string => {
+    if (typeof restaurant.price === 'number') {
+      return `约 ¥${restaurant.price}`;
+    }
     if (restaurant.price_range) {
       return restaurant.price_range;
     }
     if (restaurant.cost) {
-      return `¥${restaurant.cost}`;
+      return `约 ¥${restaurant.cost}`;
     }
-    return '价格面议';
+    return '价格未知';
   };
 
   // 格式化距离信息

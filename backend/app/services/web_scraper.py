@@ -126,7 +126,8 @@ class WebScraper:
                     "name": f"{destination}特色餐厅",
                     "cuisine_type": "当地菜",
                     "rating": 4.1,
-                    "price_range": "$$",
+                    "price": 580,
+                    "price_range": "约 ¥580",
                     "description": "当地特色美食",
                     "source": "scraped"
                 }

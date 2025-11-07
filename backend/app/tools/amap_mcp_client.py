@@ -463,6 +463,8 @@ class AmapMCPClient:
                 if tag_str:
                     tags = [tag.strip() for tag in tag_str.split(",") if tag.strip()]
                 
+                cost_value = self._parse_cost_value(cost)
+
                 place_item = {
                     "id": f"amap_place_{poi.get('id', '')}",
                     "name": poi.get("name", ""),
@@ -470,7 +472,8 @@ class AmapMCPClient:
                     "description": poi.get("address", ""),
                     "address": poi.get("address", ""),
                     "rating": rating,
-                    "cost": cost,  # 人均消费
+                    "price": cost_value,
+                    "cost": cost,  # 原始人均消费
                     "price_range": self._get_price_range(cost),  # 价格区间
                     "coordinates": coordinates,
                     "location": location_str,
@@ -495,29 +498,24 @@ class AmapMCPClient:
             logger.error(f"解析高德地图地点响应失败: {e}")
             return []
     
-    def _get_price_range(self, cost: str) -> str:
-        """根据人均消费获取价格区间"""
+    def _parse_cost_value(self, cost: str) -> Optional[float]:
         if not cost:
-            return "$$"
-        
+            return None
         try:
-            # 提取数字部分
             import re
-            cost_match = re.search(r'(\d+)', cost)
-            if cost_match:
-                cost_value = int(cost_match.group(1))
-                if cost_value < 30:
-                    return "$"
-                elif cost_value < 80:
-                    return "$$"
-                elif cost_value < 150:
-                    return "$$$"
-                else:
-                    return "$$$$"
-        except:
-            pass
-        
-        return "$$"
+            match = re.search(r"(\d+(\.\d+)?)", cost)
+            if match:
+                return float(match.group(1))
+        except Exception:
+            return None
+        return None
+
+    def _get_price_range(self, cost: str) -> str:
+        """根据人均消费生成价格描述"""
+        value = self._parse_cost_value(cost)
+        if value is None:
+            return "价格未知"
+        return f"约 ¥{int(round(value))}"
     
     def _get_place_type(self, category: str) -> str:
         """获取高德地图地点类型"""

@@ -438,7 +438,7 @@ class PlanGenerator:
       {{
         "name": "餐厅名称",
         "cuisine": "菜系",
-        "price_range": "价格区间",
+        "price_range": "参考消费(元)",
         "rating": 评分,
         "address": "地址"
       }}
@@ -967,7 +967,7 @@ class PlanGenerator:
                 formatted_items.append(f"""
   {i+1}. 餐厅名称: {item.get('name', 'N/A')}
      菜系: {item.get('cuisine', 'N/A')}
-     价格区间: {item.get('price_range', 'N/A')}
+     参考消费: {item.get('price_range', '价格未知')}
      评分: {item.get('rating', 'N/A')}
      地址: {item.get('address', 'N/A')}
      特色菜: {', '.join(item.get('specialties', []))}""")
@@ -1441,6 +1441,36 @@ class PlanGenerator:
         
         return meals
     
+    def _extract_price_value(self, restaurant: Dict[str, Any]) -> float:
+        """提取餐厅的价格数值，用于排序"""
+        price_candidates = [
+            restaurant.get("price"),
+            restaurant.get("average_price"),
+            restaurant.get("cost"),
+        ]
+        for candidate in price_candidates:
+            if candidate is None:
+                continue
+            if isinstance(candidate, (int, float)):
+                return float(candidate)
+            try:
+                import re
+                match = re.search(r"(\d+(\.\d+)?)", str(candidate))
+                if match:
+                    return float(match.group(1))
+            except Exception:
+                continue
+        price_range = restaurant.get("price_range")
+        if price_range:
+            try:
+                import re
+                match = re.search(r"(\d+(\.\d+)?)", str(price_range))
+                if match:
+                    return float(match.group(1))
+            except Exception:
+                pass
+        return float("inf")
+
     def _select_restaurants(
         self, 
         restaurants: List[Dict[str, Any]], 
@@ -1453,7 +1483,7 @@ class PlanGenerator:
         
         # 根据方案类型选择餐厅
         if plan_type == "经济实惠型":
-            selected = sorted(restaurants, key=lambda x: x.get("price_range", "$$$$"))[:num_days]
+            selected = sorted(restaurants, key=lambda x: self._extract_price_value(x))[:num_days]
         elif plan_type == "美食体验型":
             selected = sorted(restaurants, key=lambda x: x.get("rating", 0), reverse=True)[:num_days]
         else:
@@ -1788,7 +1818,7 @@ class PlanGenerator:
           {
             "name": "菜品名称",
             "description": "菜品描述和特色",
-            "price": "价格区间",
+            "price": "参考价格(元)",
             "taste": "口味特点"
           }
         ],

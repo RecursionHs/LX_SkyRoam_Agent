@@ -42,6 +42,41 @@ class DataCollector:
 
         # asyncio.run(self.collect_xiaohongshu_data("杭州西湖"))
     
+    @staticmethod
+    def _parse_price_value(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        try:
+            import re
+            match = re.search(r"(\d+(\.\d+)?)", str(value))
+            if match:
+                return float(match.group(1))
+        except Exception:
+            return None
+        return None
+
+    @classmethod
+    def _format_price_label(cls, value: Optional[float]) -> str:
+        if value is None:
+            return "价格未知"
+        return f"约 ¥{int(round(value))}"
+
+    def _apply_price_metadata(self, restaurant: Dict[str, Any], raw_price: Any = None) -> Dict[str, Any]:
+        """根据原始价格信息填充统一的价格字段"""
+        price_value = self._parse_price_value(raw_price)
+        if price_value is None:
+            price_value = self._parse_price_value(
+                restaurant.get("price") or restaurant.get("cost") or restaurant.get("price_range")
+            )
+        if price_value is not None:
+            restaurant["price"] = price_value
+        else:
+            restaurant.pop("price", None)
+        restaurant["price_range"] = self._format_price_label(price_value)
+        return restaurant
+    
     async def get_destination_geocode_info(self, destination: str) -> Optional[Dict[str, Any]]:
         """
         统一的地理编码获取函数
@@ -553,7 +588,6 @@ class DataCollector:
                                 "name": restaurant.get("name", "餐厅"),
                                 "cuisine": restaurant.get("detail_info", {}).get("tag", "中餐"),
                                 "rating": restaurant.get("detail_info", {}).get("overall_rating", "4.2"),
-                                "price_range": "$$" if restaurant.get("detail_info", {}).get("price") else "$$$",
                                 "address": restaurant.get("address", ""),
                                 "coordinates": {
                                     "lat": restaurant.get("location", {}).get("lat"),
@@ -563,7 +597,10 @@ class DataCollector:
                                 "specialties": restaurant.get("detail_info", {}).get("tag", "").split(",") if restaurant.get("detail_info", {}).get("tag") else ["特色菜"],
                                 "source": "百度地图API"
                             }
-                            restaurant_data.append(restaurant_item)
+                            restaurant_data.append(self._apply_price_metadata(
+                                restaurant_item,
+                                restaurant.get("detail_info", {}).get("price")
+                            ))
                     
                     # 搜索特色小吃
                     snack_result = await map_search_places(
@@ -580,7 +617,6 @@ class DataCollector:
                                 "name": snack.get("name", "小吃店"),
                                 "cuisine": "小吃",
                                 "rating": snack.get("detail_info", {}).get("overall_rating", "4.0"),
-                                "price_range": "$",
                                 "address": snack.get("address", ""),
                                 "coordinates": {
                                     "lat": snack.get("location", {}).get("lat"),
@@ -590,7 +626,7 @@ class DataCollector:
                                 "specialties": ["特色小吃"],
                                 "source": "百度地图API"
                             }
-                            restaurant_data.append(restaurant_item)
+                            restaurant_data.append(self._apply_price_metadata(restaurant_item))
                     
                     logger.info(f"从百度地图API获取到 {len(restaurant_data)} 条餐厅数据")
                     
@@ -625,8 +661,7 @@ class DataCollector:
                                 "name": amap_restaurant.get("name", "餐厅"),
                                 "cuisine": amap_restaurant.get("category", "中餐"),
                                 "rating": amap_restaurant.get("rating", 4.0),
-                                "price_range": amap_restaurant.get("price_range", "$$"),
-                                "cost": amap_restaurant.get("cost", ""),  # 人均消费
+                                "cost": amap_restaurant.get("cost", ""),  # 原始人均消费字符串
                                 "address": amap_restaurant.get("address", ""),
                                 "coordinates": amap_restaurant.get("coordinates", {}),
                                 "location": amap_restaurant.get("location", ""),
@@ -641,7 +676,10 @@ class DataCollector:
                                 "distance": amap_restaurant.get("distance", ""),
                                 "source": "高德地图周边搜索"
                             }
-                            restaurant_data.append(restaurant_item)
+                            restaurant_data.append(self._apply_price_metadata(
+                                restaurant_item,
+                                amap_restaurant.get("cost")
+                            ))
                         
                         logger.info(f"从高德地图周边搜索获取到 {len(amap_restaurants)} 条餐厅数据")
                     else:
@@ -654,7 +692,8 @@ class DataCollector:
             if len(restaurant_data) < 10:
                 try:
                     mcp_data = await self.mcp_client.get_restaurants(destination)
-                    restaurant_data.extend(mcp_data)
+                    for item in mcp_data:
+                        restaurant_data.append(self._apply_price_metadata(item))
                     logger.info(f"从MCP服务补充 {len(mcp_data)} 条餐厅数据")
                 except Exception as e:
                     logger.warning(f"MCP餐厅服务调用失败: {e}")

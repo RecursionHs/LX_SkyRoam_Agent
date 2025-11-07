@@ -138,6 +138,11 @@ const TravelPlanPage: React.FC = () => {
     return typeof v === 'number' ? v : undefined;
   };
 
+  const hasPriceValue = (value?: string) => {
+    if (typeof value !== 'string') return false;
+    return value.trim().length > 0 && value !== '价格未知';
+  };
+
   const getWeatherCardStyle = (day: any) => {
     const text = `${day?.dayweather || ''}${day?.nightweather || ''}`;
     const lower = text.toLowerCase();
@@ -661,7 +666,7 @@ const TravelPlanPage: React.FC = () => {
                               {a?.category && <Tag>{a.category}</Tag>}
                               {a?.business_area && <Tag color="green">{a.business_area}</Tag>}
                               {a?.distance && <Tag color="blue">距 {a.distance}m</Tag>}
-                              {a?.price_range && <Tag color="orange">{a.price_range}</Tag>}
+                              {hasPriceValue(a?.price_range) && <Tag color="orange">{a.price_range}</Tag>}
                             </Space>
                             {a?.address && <Text type="secondary">{a.address}</Text>}
                             {desc && <div style={{ color: '#666' }}>{desc}</div>}
@@ -683,7 +688,9 @@ const TravelPlanPage: React.FC = () => {
                       const cover = getImage(r);
                       const title = getTitle(r, '餐厅');
                       const desc = getDesc(r);
-                      const price = getPrice(r);
+                      const price = typeof r.price === 'number'
+                        ? `约 ¥${r.price}`
+                        : (hasPriceValue(r?.price_range) ? r.price_range : getPrice(r));
                       return (
                         <Card
                           hoverable
@@ -705,7 +712,6 @@ const TravelPlanPage: React.FC = () => {
                             <div style={{ fontWeight: 600 }}>{title}</div>
                             <Space wrap size={6}>
                               {price && <Tag color="orange">{price}</Tag>}
-                              {r?.price_range && <Tag color="orange">{r.price_range}</Tag>}
                               {r?.opening_hours && (
                                 <Tag icon={<ClockCircleOutlined />} color="green">
                                   {r.opening_hours}
