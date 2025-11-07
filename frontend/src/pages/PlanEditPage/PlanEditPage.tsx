@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Form, Input, Button, DatePicker, Select, Space, message, Typography, Spin } from 'antd';
+import { Card, Form, Input, Button, DatePicker, Select, Space, message, Typography, Spin, InputNumber, Divider } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
 import { authFetch } from '../../utils/auth';
+import { TRANSPORTATION_OPTIONS, AGE_GROUP_OPTIONS, FOOD_PREFERENCES_OPTIONS, DIETARY_RESTRICTIONS_OPTIONS, STATUS_OPTIONS, PREFERENCES_OPTIONS } from '../../constants/travel';
 
 const { Title } = Typography;
 const { RangePicker } = DatePicker;
@@ -17,15 +18,46 @@ interface PlanDetail {
   end_date?: string;
   duration_days?: number;
   status: string;
+  // 新增可编辑字段
+  departure?: string;
+  budget?: number;
+  transportation?: string;
+  travelers?: number;
+  ageGroups?: string[];
+  foodPreferences?: string[];
+  dietaryRestrictions?: string[];
+  preferences?: Record<string, any>;
+  requirements?: Record<string, any>;
 }
 
-const statusOptions = [
-  { value: 'draft', label: '草稿' },
-  { value: 'generating', label: '生成中' },
-  { value: 'completed', label: '已完成' },
-  { value: 'failed', label: '失败' },
-  { value: 'archived', label: '已归档' }
-];
+const normalizeTransportation = (v?: string) => {
+  if (!v) return v;
+  const zhMap: Record<string, string> = {
+    '飞机': 'flight',
+    '高铁': 'train',
+    '火车': 'train',
+    '大巴': 'bus',
+    '巴士': 'bus',
+    '自驾': 'car',
+    '地铁': 'metro',
+    '轮船': 'ship',
+    '混合交通': 'mixed',
+    '其他': 'other',
+  };
+  const en = v.trim().toLowerCase();
+  const enSet: Record<string, string> = {
+    flight: 'flight',
+    train: 'train',
+    bus: 'bus',
+    car: 'car',
+    metro: 'metro',
+    ship: 'ship',
+    mixed: 'mixed',
+    other: 'other',
+  };
+  if (enSet[en]) return enSet[en];
+  return zhMap[v] || zhMap[en] || v;
+};
 
 const PlanEditPage: React.FC = () => {
   const { id } = useParams();
@@ -51,6 +83,16 @@ const PlanEditPage: React.FC = () => {
           destination: data.destination,
           dateRange: data.start_date && data.end_date ? [dayjs(data.start_date), dayjs(data.end_date)] : undefined,
           status: data.status,
+          // 新增：扩展字段回填
+          departure: data.departure,
+          budget: data.budget,
+          transportation: normalizeTransportation(data.transportation),
+          travelers: data.travelers,
+          ageGroups: Array.isArray(data.ageGroups) ? data.ageGroups : [],
+          foodPreferences: Array.isArray(data.foodPreferences) ? data.foodPreferences : [],
+          dietaryRestrictions: Array.isArray(data.dietaryRestrictions) ? data.dietaryRestrictions : [],
+          travelPreferences: Array.isArray(data.preferences?.interests) ? data.preferences.interests : [],
+          specialRequirements: data.requirements?.special_requirements || data.requirements?.specialRequirements || '',
         });
       } catch (e) {
         console.error('加载计划详情失败:', e);
@@ -77,7 +119,37 @@ const PlanEditPage: React.FC = () => {
         body.duration_days = end.diff(start, 'day') + 1;
       }
       if (typeof values.status === 'string') body.status = values.status;
+  
+      // 新增：扩展保存字段
+      if (typeof values.departure === 'string') body.departure = values.departure.trim();
+      if (typeof values.budget === 'number') body.budget = values.budget;
+      if (typeof values.transportation === 'string') body.transportation = normalizeTransportation(values.transportation);
+      if (typeof values.travelers === 'number') body.travelers = values.travelers;
+      if (Array.isArray(values.ageGroups)) body.ageGroups = values.ageGroups.map((s: any) => String(s));
+      if (Array.isArray(values.foodPreferences)) body.foodPreferences = values.foodPreferences.map((s: any) => String(s));
+      if (Array.isArray(values.dietaryRestrictions)) body.dietaryRestrictions = values.dietaryRestrictions.map((s: any) => String(s));
+      if (values.travelPreferences !== undefined) {
+        const nextPreferences = { ...(plan?.preferences || {}) };
+        nextPreferences.interests = Array.isArray(values.travelPreferences)
+          ? values.travelPreferences
+          : [];
+        body.preferences = nextPreferences;
+      }
 
+      if (values.specialRequirements !== undefined) {
+        const nextRequirements = { ...(plan?.requirements || {}) };
+        const specialText =
+          typeof values.specialRequirements === 'string'
+            ? values.specialRequirements.trim()
+            : '';
+        if (specialText) {
+          nextRequirements.special_requirements = specialText;
+        } else {
+          delete nextRequirements.special_requirements;
+        }
+        body.requirements = Object.keys(nextRequirements).length ? nextRequirements : {};
+      }
+  
       setSaving(true);
       const resp = await authFetch(buildApiUrl(API_ENDPOINTS.TRAVEL_PLAN_DETAIL(planId)), {
         method: 'PUT',
@@ -106,22 +178,74 @@ const PlanEditPage: React.FC = () => {
             </div>
           ) : (
             <Form form={form} layout="vertical">
+              {/* 基本信息 */}
+              <Divider orientation="left">基本信息</Divider>
               <Form.Item label="标题" name="title" rules={[{ required: true, message: '请输入标题' }]}> 
                 <Input placeholder="计划标题" />
+              </Form.Item>
+              <Form.Item label="出发地" name="departure"> 
+                <Input placeholder="例如：上海" />
               </Form.Item>
               <Form.Item label="目的地" name="destination" rules={[{ required: true, message: '请输入目的地' }]}> 
                 <Input placeholder="例如：北京" />
               </Form.Item>
+              
               <Form.Item label="出行日期" name="dateRange"> 
                 <RangePicker showTime />
               </Form.Item>
+  
+              {/* 旅行参数 */}
+              <Divider orientation="left">旅行参数</Divider>
+              <Space size="large" wrap>
+                <Form.Item label="预算(￥)" name="budget">
+                  <InputNumber style={{ width: 200 }} min={0} step={100} placeholder="预算" />
+                </Form.Item>
+                <Form.Item label="出行方式" name="transportation">
+                  <Select options={TRANSPORTATION_OPTIONS} allowClear style={{ width: 200 }} placeholder="选择出行方式"/>
+                </Form.Item>
+                <Form.Item label="出行人数" name="travelers">
+                  <InputNumber style={{ width: 120 }} min={1} placeholder="人数" />
+                </Form.Item>
+              </Space>
+  
+              {/* 人群与饮食 */}
+              <Divider orientation="left">人群与饮食</Divider>
+              <Form.Item label="年龄组成" name="ageGroups">
+                <Select mode="multiple" options={AGE_GROUP_OPTIONS} placeholder="选择年龄组成"/>
+              </Form.Item>
+              <Form.Item label="口味偏好" name="foodPreferences">
+                <Select mode="multiple" options={FOOD_PREFERENCES_OPTIONS} placeholder="选择口味偏好"/>
+              </Form.Item>
+              <Form.Item label="饮食禁忌" name="dietaryRestrictions">
+                <Select mode="multiple" options={DIETARY_RESTRICTIONS_OPTIONS} placeholder="选择饮食禁忌"/>
+              </Form.Item>
+  
+              {/* 偏好与特殊要求 */}
+              <Divider orientation="left">偏好与特殊要求</Divider>
+              <Form.Item label="旅行偏好" name="travelPreferences">
+                <Select
+                  mode="multiple"
+                  options={PREFERENCES_OPTIONS}
+                  placeholder="选择旅行偏好（与创建页一致）"
+                  allowClear
+                />
+              </Form.Item>
+              <Form.Item label="特殊要求" name="specialRequirements">
+                <Input.TextArea
+                  placeholder="请输入特殊要求（如：带老人、带小孩、无障碍设施、特殊饮食需求等）"
+                  rows={4}
+                />
+              </Form.Item>
+
+              {/* 状态与描述 */}
+              <Divider orientation="left">状态与描述</Divider>
               <Form.Item label="状态" name="status"> 
-                <Select options={statusOptions} placeholder="选择状态" allowClear />
+                <Select options={STATUS_OPTIONS} placeholder="选择状态" allowClear />
               </Form.Item>
               <Form.Item label="描述" name="description"> 
                 <Input.TextArea placeholder="计划描述" rows={4} />
               </Form.Item>
-
+  
               <Space>
                 <Button onClick={() => navigate(`/plan/${planId}`)}>取消</Button>
                 <Button type="primary" loading={saving} onClick={handleSave}>保存</Button>

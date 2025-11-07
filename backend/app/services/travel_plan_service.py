@@ -2,7 +2,7 @@
 旅行计划服务
 """
 from datetime import datetime, date, timezone
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func, or_
 from sqlalchemy.orm import selectinload
@@ -14,12 +14,85 @@ from app.schemas.travel_plan import TravelPlanCreate, TravelPlanUpdate, TravelPl
 class TravelPlanService:
     """旅行计划服务"""
     
+    _TRAVELER_META_FIELDS = ("travelers", "ageGroups", "foodPreferences", "dietaryRestrictions")
+
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    @classmethod
+    def _extract_traveler_meta(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        """从payload中提取旅行者相关字段，并从原数据中移除"""
+        extracted: Dict[str, Any] = {}
+        for field in cls._TRAVELER_META_FIELDS:
+            if field in data:
+                extracted[field] = data.pop(field)
+        return extracted
+
+    @staticmethod
+    def _merge_traveler_meta(
+        preferences: Optional[Dict[str, Any]],
+        requirements: Optional[Dict[str, Any]],
+        traveler_meta: Dict[str, Any],
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """将旅行者信息合并到preferences/requirements中"""
+        prefs = dict(preferences or {})
+        reqs = dict(requirements or {})
+
+        if not traveler_meta:
+            return (prefs or None, reqs or None)
+
+        travelers = traveler_meta.get("travelers", None)
+        if travelers is not None:
+            if travelers in ("", None):
+                prefs.pop("travelers", None)
+                prefs.pop("travelers_count", None)
+                reqs.pop("travelers_count", None)
+            else:
+                prefs["travelers"] = travelers
+                prefs["travelers_count"] = travelers
+                reqs["travelers_count"] = travelers
+
+        age_groups = traveler_meta.get("ageGroups", None)
+        if age_groups is not None:
+            if age_groups:
+                prefs["age_groups"] = age_groups
+            else:
+                prefs.pop("age_groups", None)
+
+        food_preferences = traveler_meta.get("foodPreferences", None)
+        if food_preferences is not None:
+            if food_preferences:
+                prefs["food_preferences"] = food_preferences
+            else:
+                prefs.pop("food_preferences", None)
+
+        dietary_restrictions = traveler_meta.get("dietaryRestrictions", None)
+        if dietary_restrictions is not None:
+            if dietary_restrictions:
+                prefs["dietary_restrictions"] = dietary_restrictions
+                if isinstance(dietary_restrictions, list):
+                    reqs["dietary_info"] = ", ".join(str(item) for item in dietary_restrictions if item is not None)
+                else:
+                    reqs["dietary_info"] = str(dietary_restrictions)
+            else:
+                prefs.pop("dietary_restrictions", None)
+                reqs.pop("dietary_info", None)
+
+        return (prefs or None, reqs or None)
     
     async def create_travel_plan(self, plan_data: TravelPlanCreate) -> TravelPlanResponse:
         """创建旅行计划"""
-        plan = TravelPlan(**plan_data.dict())
+        payload = plan_data.model_dump()
+        traveler_meta = self._extract_traveler_meta(payload)
+        preferences, requirements = self._merge_traveler_meta(
+            payload.get("preferences"),
+            payload.get("requirements"),
+            traveler_meta
+        )
+        payload["preferences"] = preferences
+        payload["requirements"] = requirements
+
+        plan = TravelPlan(**payload)
         self.db.add(plan)
         await self.db.commit()
         await self.db.refresh(plan)
@@ -193,7 +266,30 @@ class TravelPlanService:
         plan_data: TravelPlanUpdate
     ) -> Optional[TravelPlan]:
         """更新旅行计划"""
-        update_data = plan_data.dict(exclude_unset=True)
+        plan = await self.get_travel_plan(plan_id)
+        if not plan:
+            return None
+
+        update_data = plan_data.model_dump(exclude_unset=True)
+        traveler_meta = self._extract_traveler_meta(update_data)
+
+        preferences_provided = "preferences" in update_data
+        requirements_provided = "requirements" in update_data
+        preferences_payload = update_data.pop("preferences", None) if preferences_provided else None
+        requirements_payload = update_data.pop("requirements", None) if requirements_provided else None
+
+        if preferences_provided or requirements_provided or traveler_meta:
+            prefs_base = preferences_payload if preferences_provided else plan.preferences
+            reqs_base = requirements_payload if requirements_provided else plan.requirements
+            merged_prefs, merged_reqs = self._merge_traveler_meta(
+                prefs_base,
+                reqs_base,
+                traveler_meta
+            )
+            if preferences_provided or traveler_meta:
+                update_data["preferences"] = merged_prefs
+            if requirements_provided or traveler_meta:
+                update_data["requirements"] = merged_reqs
         
         if update_data:
             await self.db.execute(
@@ -202,8 +298,9 @@ class TravelPlanService:
                 .values(**update_data)
             )
             await self.db.commit()
+            return await self.get_travel_plan(plan_id)
         
-        return await self.get_travel_plan(plan_id)
+        return plan
     
     async def delete_travel_plan(self, plan_id: int) -> bool:
         """删除旅行计划"""

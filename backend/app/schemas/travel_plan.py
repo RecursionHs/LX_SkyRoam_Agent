@@ -63,6 +63,8 @@ class TravelPlanUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     destination: Optional[str] = None
+    # 新增：支持更新出发地
+    departure: Optional[str] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     duration_days: Optional[int] = None

@@ -43,6 +43,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
 import { authFetch } from '../../utils/auth';
+import { TRANSPORTATION_OPTIONS, AGE_GROUP_OPTIONS, FOOD_PREFERENCES_OPTIONS, DIETARY_RESTRICTIONS_OPTIONS, PREFERENCES_OPTIONS } from '../../constants/travel';
 
 
 const { Title, Paragraph, Text } = Typography;
@@ -883,13 +884,7 @@ const TravelPlanPage: React.FC = () => {
                   name="transportation"
                   label="出行方式"
                 >
-                  <Select placeholder="请选择出行方式（可选）" allowClear>
-                    <Option value="flight">飞机</Option>
-                    <Option value="train">火车</Option>
-                    <Option value="bus">大巴</Option>
-                    <Option value="car">自驾</Option>
-                    <Option value="mixed">混合交通</Option>
-                  </Select>
+                  <Select placeholder="请选择出行方式（可选）" allowClear options={TRANSPORTATION_OPTIONS} />
                 </Form.Item>
               </Col>
             </Row>
@@ -901,14 +896,8 @@ const TravelPlanPage: React.FC = () => {
                     mode="multiple" 
                     placeholder="选择您的旅行偏好"
                     allowClear
-                  >
-                    <Option value="culture">文化历史</Option>
-                    <Option value="nature">自然风光</Option>
-                    <Option value="food">美食体验</Option>
-                    <Option value="shopping">购物娱乐</Option>
-                    <Option value="adventure">冒险刺激</Option>
-                    <Option value="relaxation">休闲放松</Option>
-                  </Select>
+                    options={PREFERENCES_OPTIONS}
+                  />
                 </Form.Item>
               </Col>
 
@@ -918,13 +907,8 @@ const TravelPlanPage: React.FC = () => {
                     mode="multiple" 
                     placeholder="选择出行人员年龄组成"
                     allowClear
-                  >
-                    <Option value="infant">婴幼儿（0-2岁）</Option>
-                    <Option value="child">儿童（3-12岁）</Option>
-                    <Option value="teenager">青少年（13-17岁）</Option>
-                    <Option value="adult">成人（18-59岁）</Option>
-                    <Option value="senior">老年人（60岁以上）</Option>
-                  </Select>
+                    options={AGE_GROUP_OPTIONS}
+                  />
                 </Form.Item>
               </Col>
             </Row>
@@ -936,18 +920,8 @@ const TravelPlanPage: React.FC = () => {
                     mode="multiple" 
                     placeholder="选择您的口味偏好"
                     allowClear
-                  >
-                    <Option value="spicy">辣味</Option>
-                    <Option value="sweet">甜味</Option>
-                    <Option value="sour">酸味</Option>
-                    <Option value="light">清淡</Option>
-                    <Option value="heavy">重口味</Option>
-                    <Option value="seafood">海鲜</Option>
-                    <Option value="meat">肉类</Option>
-                    <Option value="vegetarian">素食</Option>
-                    <Option value="local">当地特色</Option>
-                    <Option value="international">国际美食</Option>
-                  </Select>
+                    options={FOOD_PREFERENCES_OPTIONS}
+                  />
                 </Form.Item>
               </Col>
 
@@ -957,20 +931,8 @@ const TravelPlanPage: React.FC = () => {
                     mode="multiple" 
                     placeholder="选择忌口或饮食限制"
                     allowClear
-                  >
-                    <Option value="no_pork">不吃猪肉</Option>
-                    <Option value="no_beef">不吃牛肉</Option>
-                    <Option value="no_seafood">不吃海鲜</Option>
-                    <Option value="no_spicy">不吃辣</Option>
-                    <Option value="vegetarian">素食主义</Option>
-                    <Option value="vegan">严格素食</Option>
-                    <Option value="halal">清真食品</Option>
-                    <Option value="kosher">犹太洁食</Option>
-                    <Option value="gluten_free">无麸质</Option>
-                    <Option value="lactose_free">无乳糖</Option>
-                    <Option value="nut_allergy">坚果过敏</Option>
-                    <Option value="diabetes">糖尿病饮食</Option>
-                  </Select>
+                    options={DIETARY_RESTRICTIONS_OPTIONS}
+                  />
                 </Form.Item>
               </Col>
             </Row>

@@ -25,12 +25,6 @@ class TravelPlan(BaseModel):
     budget = Column(Float, nullable=True)
     transportation = Column(String(50), nullable=True)  # 出行方式
     
-    # 旅行者信息
-    travelers = Column(Integer, default=1, nullable=True)  # 出行人数
-    ageGroups = Column(JSON, nullable=True)  # 年龄组成
-    foodPreferences = Column(JSON, nullable=True)  # 口味偏好
-    dietaryRestrictions = Column(JSON, nullable=True)  # 饮食禁忌
-    
     # 用户偏好
     preferences = Column(JSON, nullable=True)  # 存储用户偏好设置
     requirements = Column(JSON, nullable=True)  # 存储特殊要求
@@ -54,6 +48,52 @@ class TravelPlan(BaseModel):
     items = relationship("TravelPlanItem", back_populates="travel_plan", cascade="all, delete-orphan")
     # 新增：用户评分关系
     ratings = relationship("TravelPlanRating", back_populates="travel_plan", cascade="all, delete-orphan")
+
+    @staticmethod
+    def _as_dict(value):
+        return value if isinstance(value, dict) else {}
+
+    def _get_preference_value(self, *keys):
+        """从preferences或requirements中提取值"""
+        prefs = self._as_dict(getattr(self, "preferences", None))
+        reqs = self._as_dict(getattr(self, "requirements", None))
+        for source in (prefs, reqs):
+            for key in keys:
+                if key in source and source[key] not in (None, ""):
+                    return source[key]
+        return None
+
+    def _get_list_value(self, *keys):
+        value = self._get_preference_value(*keys)
+        if value is None:
+            return None
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            return [value]
+        return None
+
+    @property
+    def travelers(self):
+        value = self._get_preference_value("travelers", "travelers_count")
+        if value is None:
+            return 1
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 1
+
+    @property
+    def ageGroups(self):
+        return self._get_list_value("ageGroups", "age_groups")
+
+    @property
+    def foodPreferences(self):
+        return self._get_list_value("foodPreferences", "food_preferences")
+
+    @property
+    def dietaryRestrictions(self):
+        return self._get_list_value("dietaryRestrictions", "dietary_restrictions")
     
     def __repr__(self):
         try:
