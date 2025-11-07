@@ -78,7 +78,9 @@ class PlanGenerator:
     ) -> List[Dict[str, Any]]:
         """生成多个旅行方案"""
         try:
+            # logger.warning(f"preferences={preferences}")
             preferences = self._normalize_preferences(preferences)
+            # logger.warning(f"_normalize_preferences(preferences)={preferences}")
             logger.info("开始生成旅行方案")
             
             # 检查是否有多个偏好，决定使用拆分策略还是传统策略

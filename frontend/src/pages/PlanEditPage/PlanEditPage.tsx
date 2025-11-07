@@ -22,10 +22,6 @@ interface PlanDetail {
   departure?: string;
   budget?: number;
   transportation?: string;
-  travelers?: number;
-  ageGroups?: string[];
-  foodPreferences?: string[];
-  dietaryRestrictions?: string[];
   preferences?: Record<string, any>;
   requirements?: Record<string, any>;
 }
@@ -77,6 +73,8 @@ const PlanEditPage: React.FC = () => {
         if (!resp.ok) throw new Error(`获取计划详情失败 (${resp.status})`);
         const data = await resp.json();
         setPlan(data);
+        const prefs = data.preferences || {};
+        const normalizeArray = (value: any) => (Array.isArray(value) ? value : []);
         form.setFieldsValue({
           title: data.title,
           description: data.description,
@@ -87,11 +85,13 @@ const PlanEditPage: React.FC = () => {
           departure: data.departure,
           budget: data.budget,
           transportation: normalizeTransportation(data.transportation),
-          travelers: data.travelers,
-          ageGroups: Array.isArray(data.ageGroups) ? data.ageGroups : [],
-          foodPreferences: Array.isArray(data.foodPreferences) ? data.foodPreferences : [],
-          dietaryRestrictions: Array.isArray(data.dietaryRestrictions) ? data.dietaryRestrictions : [],
-          travelPreferences: Array.isArray(data.preferences?.interests) ? data.preferences.interests : [],
+          travelers: typeof prefs.travelers === 'number'
+            ? prefs.travelers
+            : (typeof prefs.travelers === 'string' ? Number(prefs.travelers) || undefined : undefined),
+          ageGroups: normalizeArray(prefs.ageGroups),
+          foodPreferences: normalizeArray(prefs.foodPreferences),
+          dietaryRestrictions: normalizeArray(prefs.dietaryRestrictions),
+          travelPreferences: normalizeArray(prefs.interests),
           specialRequirements: data.requirements?.special_requirements || data.requirements?.specialRequirements || '',
         });
       } catch (e) {
@@ -124,17 +124,23 @@ const PlanEditPage: React.FC = () => {
       if (typeof values.departure === 'string') body.departure = values.departure.trim();
       if (typeof values.budget === 'number') body.budget = values.budget;
       if (typeof values.transportation === 'string') body.transportation = normalizeTransportation(values.transportation);
-      if (typeof values.travelers === 'number') body.travelers = values.travelers;
-      if (Array.isArray(values.ageGroups)) body.ageGroups = values.ageGroups.map((s: any) => String(s));
-      if (Array.isArray(values.foodPreferences)) body.foodPreferences = values.foodPreferences.map((s: any) => String(s));
-      if (Array.isArray(values.dietaryRestrictions)) body.dietaryRestrictions = values.dietaryRestrictions.map((s: any) => String(s));
-      if (values.travelPreferences !== undefined) {
-        const nextPreferences = { ...(plan?.preferences || {}) };
-        nextPreferences.interests = Array.isArray(values.travelPreferences)
-          ? values.travelPreferences
-          : [];
-        body.preferences = nextPreferences;
+      const nextPreferences = { ...(plan?.preferences || {}) };
+      if (Array.isArray(values.travelPreferences)) {
+        nextPreferences.interests = values.travelPreferences;
       }
+      if (typeof values.travelers === 'number') {
+        nextPreferences.travelers = values.travelers;
+      }
+      if (Array.isArray(values.ageGroups)) {
+        nextPreferences.ageGroups = values.ageGroups.map((s: any) => String(s));
+      }
+      if (Array.isArray(values.foodPreferences)) {
+        nextPreferences.foodPreferences = values.foodPreferences.map((s: any) => String(s));
+      }
+      if (Array.isArray(values.dietaryRestrictions)) {
+        nextPreferences.dietaryRestrictions = values.dietaryRestrictions.map((s: any) => String(s));
+      }
+      body.preferences = nextPreferences;
 
       if (values.specialRequirements !== undefined) {
         const nextRequirements = { ...(plan?.requirements || {}) };

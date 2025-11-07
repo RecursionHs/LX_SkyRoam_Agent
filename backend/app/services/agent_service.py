@@ -241,6 +241,9 @@ class AgentService:
         
         # 使用LLM增强的方案生成
         try:
+            # logger.warning(f"plan={plan}")
+            # logger.warning(f"preferences={preferences}")
+
             # 首先尝试使用LLM分析数据并生成方案
             if self.openai_client.api_key:
                 return await self.plan_generator.generate_plans(

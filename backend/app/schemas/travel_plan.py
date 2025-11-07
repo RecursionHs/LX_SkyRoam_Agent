@@ -40,11 +40,7 @@ class TravelPlanBase(BaseModel):
     duration_days: int = Field(..., description="旅行天数")
     budget: Optional[float] = Field(None, description="预算")
     transportation: Optional[str] = Field(None, description="出行方式")
-    travelers: Optional[int] = Field(1, description="出行人数")
-    ageGroups: Optional[List[str]] = Field(None, description="年龄组成")
-    foodPreferences: Optional[List[str]] = Field(None, description="口味偏好")
-    dietaryRestrictions: Optional[List[str]] = Field(None, description="饮食禁忌")
-    preferences: Optional[Dict[str, Any]] = Field(None, description="用户偏好")
+    preferences: Optional[Dict[str, Any]] = Field(None, description="用户偏好（应包含travelers、ageGroups等信息）")
     requirements: Optional[Dict[str, Any]] = Field(None, description="特殊要求")
 
 
@@ -70,10 +66,6 @@ class TravelPlanUpdate(BaseModel):
     duration_days: Optional[int] = None
     budget: Optional[float] = None
     transportation: Optional[str] = None
-    travelers: Optional[int] = None
-    ageGroups: Optional[List[str]] = None
-    foodPreferences: Optional[List[str]] = None
-    dietaryRestrictions: Optional[List[str]] = None
     preferences: Optional[Dict[str, Any]] = None
     requirements: Optional[Dict[str, Any]] = None
     status: Optional[str] = None
@@ -132,10 +124,6 @@ class TravelPlanResponse(TravelPlanBase):
             'duration_days': obj.duration_days,
             'budget': obj.budget,
             'transportation': obj.transportation,
-            'travelers': getattr(obj, 'travelers', 1),
-            'ageGroups': getattr(obj, 'ageGroups', None),
-            'foodPreferences': getattr(obj, 'foodPreferences', None),
-            'dietaryRestrictions': getattr(obj, 'dietaryRestrictions', None),
             'preferences': obj.preferences,
             'requirements': obj.requirements,
             'user_id': obj.user_id,
