@@ -38,6 +38,7 @@ interface TravelPlan {
   status: string;
   score?: number;
   is_public?: boolean;
+  source?: 'private' | 'public';
 }
 
 // 默认热门目的地数据（当后台无数据或加载失败时展示）
@@ -75,6 +76,7 @@ const DestinationsPage: React.FC = () => {
   const [planMinScore, setPlanMinScore] = useState<number | undefined>(undefined);
   const [planDateRange, setPlanDateRange] = useState<any[]>([]);
   const [planStatus, setPlanStatus] = useState<string>('全部');
+  const [planSource, setPlanSource] = useState<'全部' | 'private' | 'public'>('全部');
 
   useEffect(() => {
     const fetchDestinations = async () => {
@@ -95,6 +97,51 @@ const DestinationsPage: React.FC = () => {
     };
     fetchDestinations();
   }, []);
+
+  // 根据来源和当前目的地重新获取方案列表（组件内部）
+  useEffect(() => {
+    if (!modalOpen || !activeDest) return;
+    const d = activeDest;
+    const fetchData = async () => {
+      setPlansLoading(true);
+      try {
+        let listPrivate: TravelPlan[] = [];
+        let listPublic: TravelPlan[] = [];
+
+        if (planSource === 'private' || planSource === '全部') {
+          const resPrivate = await authFetch(buildApiUrl(`${API_ENDPOINTS.TRAVEL_PLANS}?skip=0&limit=100`));
+          if (!resPrivate.ok) throw new Error(`加载个人方案失败 (${resPrivate.status})`);
+          const dataPrivate = await resPrivate.json();
+          listPrivate = Array.isArray(dataPrivate?.plans) ? dataPrivate.plans : (Array.isArray(dataPrivate) ? dataPrivate : []);
+        }
+
+        if (planSource === 'public' || planSource === '全部') {
+          const resPublic = await fetch(buildApiUrl(`${API_ENDPOINTS.TRAVEL_PLANS_PUBLIC}?skip=0&limit=100`));
+          if (!resPublic.ok) throw new Error(`加载公开方案失败 (${resPublic.status})`);
+          const dataPublic = await resPublic.json();
+          listPublic = Array.isArray(dataPublic?.plans) ? dataPublic.plans : (Array.isArray(dataPublic) ? dataPublic : []);
+        }
+
+        const targetName = (d.name || '').trim().toLowerCase();
+        const cityName = (d.city || '').trim().toLowerCase();
+        const matchByDestination = (p: TravelPlan) => {
+          const dest = (p.destination || '').toLowerCase();
+          return dest.includes(targetName) || (!!cityName && dest.includes(cityName));
+        };
+
+        const matchedPrivate = listPrivate.filter(matchByDestination).map((p) => ({ ...p, source: 'private' as const }));
+        const matchedPublic = listPublic.filter(matchByDestination).map((p) => ({ ...p, source: 'public' as const }));
+        const mergedMap = new Map<number, TravelPlan>();
+        [...matchedPublic, ...matchedPrivate].forEach((p) => mergedMap.set(p.id, p));
+        setPlans(Array.from(mergedMap.values()));
+      } catch (e) {
+        setPlans([]);
+      } finally {
+        setPlansLoading(false);
+      }
+    };
+    fetchData();
+  }, [modalOpen, activeDest, planSource]);
 
   const filteredDestinations = useMemo(() => {
     const keyword = q.trim().toLowerCase();
@@ -131,36 +178,7 @@ const DestinationsPage: React.FC = () => {
     setPlanMinScore(undefined);
     setPlanDateRange([]);
     setPlanStatus('全部');
-    try {
-      // 加载个人方案与公开方案并合并，前端按目的地关键词包含过滤
-      const [resPrivate, resPublic] = await Promise.all([
-        authFetch(buildApiUrl(`${API_ENDPOINTS.TRAVEL_PLANS}?skip=0&limit=100`)),
-        fetch(buildApiUrl(`${API_ENDPOINTS.TRAVEL_PLANS_PUBLIC}?skip=0&limit=100`))
-      ]);
-      if (!resPrivate.ok) throw new Error(`加载个人方案失败 (${resPrivate.status})`);
-      if (!resPublic.ok) throw new Error(`加载公开方案失败 (${resPublic.status})`);
-      const dataPrivate = await resPrivate.json();
-      const dataPublic = await resPublic.json();
-      const listPrivate: TravelPlan[] = Array.isArray(dataPrivate?.plans) ? dataPrivate.plans : (Array.isArray(dataPrivate) ? dataPrivate : []);
-      const listPublic: TravelPlan[] = Array.isArray(dataPublic?.plans) ? dataPublic.plans : (Array.isArray(dataPublic) ? dataPublic : []);
-
-      const targetName = (d.name || '').trim().toLowerCase();
-      const cityName = (d.city || '').trim().toLowerCase();
-      const matchByDestination = (p: TravelPlan) => {
-        const dest = (p.destination || '').toLowerCase();
-        return dest.includes(targetName) || (!!cityName && dest.includes(cityName));
-      };
-
-      const matchedPrivate = listPrivate.filter(matchByDestination);
-      const matchedPublic = listPublic.filter(matchByDestination);
-      const mergedMap = new Map<number, TravelPlan>();
-      [...matchedPublic, ...matchedPrivate].forEach((p) => mergedMap.set(p.id, p));
-      setPlans(Array.from(mergedMap.values()));
-    } catch (e: any) {
-      setPlans([]);
-    } finally {
-      setPlansLoading(false);
-    }
+    // 移除这里的请求，改为在 useEffect 中根据来源实时获取
   };
 
   const filteredPlans = useMemo(() => {
@@ -182,6 +200,10 @@ const DestinationsPage: React.FC = () => {
       result = result.filter((p) => p.status === planStatus);
     }
 
+    if (planSource && planSource !== '全部') {
+      result = result.filter((p) => (p as any).source === planSource);
+    }
+
     if (Array.isArray(planDateRange) && planDateRange.length === 2 && planDateRange[0] && planDateRange[1]) {
       const [r0, r1] = planDateRange;
       result = result.filter((p) => {
@@ -193,7 +215,7 @@ const DestinationsPage: React.FC = () => {
     }
 
     return result;
-  }, [plans, planQ, planMinScore, planStatus, planDateRange]);
+  }, [plans, planQ, planMinScore, planStatus, planSource, planDateRange]);
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
@@ -373,7 +395,18 @@ const DestinationsPage: React.FC = () => {
                 { value: 'archived', label: '已归档' },
               ]}
             />
-            <Button onClick={() => { setPlanQ(''); setPlanMinScore(undefined); setPlanDateRange([]); setPlanStatus('全部'); }}>
+            <Select
+              placeholder="来源"
+              allowClear
+              style={{ width: 140 }}
+              value={planSource === '全部' ? undefined : planSource}
+              onChange={(v) => setPlanSource((v as 'private' | 'public') || '全部')}
+              options={[
+                { value: 'private', label: '仅自己' },
+                { value: 'public', label: '仅公开' },
+              ]}
+            />
+            <Button onClick={() => { setPlanQ(''); setPlanMinScore(undefined); setPlanDateRange([]); setPlanStatus('全部'); setPlanSource('全部'); }}>
               重置
             </Button>
           </Space>
