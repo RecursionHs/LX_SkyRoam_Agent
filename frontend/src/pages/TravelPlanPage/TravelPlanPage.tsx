@@ -21,7 +21,9 @@ import {
   Tag,
   Tabs,
   List,
-  Image
+  Image,
+  Grid,
+  Timeline
 } from 'antd';
 import { 
   SearchOutlined, 
@@ -69,6 +71,8 @@ interface TravelRequest {
 const TravelPlanPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -132,6 +136,60 @@ const TravelPlanPage: React.FC = () => {
   const getLikes = (item: any) => {
     const v = item?.likes || item?.like_count || item?.liked_count;
     return typeof v === 'number' ? v : undefined;
+  };
+
+  const getWeatherCardStyle = (day: any) => {
+    const text = `${day?.dayweather || ''}${day?.nightweather || ''}`;
+    const lower = text.toLowerCase();
+    if (/雪|snow/.test(lower)) {
+      return {
+        background: 'linear-gradient(135deg, #83a4d4 0%, #b6fbff 100%)',
+        color: '#0d1b2a',
+      };
+    }
+    if (/雨|storm|雷/.test(lower)) {
+      return {
+        background: 'linear-gradient(135deg, #314755 0%, #26a0da 100%)',
+        color: '#f0f8ff',
+      };
+    }
+    if (/阴|云|cloud/.test(lower)) {
+      return {
+        background: 'linear-gradient(135deg, #bdc3c7 0%, #2c3e50 100%)',
+        color: '#f4f8fb',
+      };
+    }
+    if (/晴|sun/.test(lower)) {
+      return {
+        background: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)',
+        color: '#4a1b00',
+      };
+    }
+    return {
+      background: 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)',
+      color: '#0f172a',
+    };
+  };
+
+  const renderPreviewGrid = (
+    data: any[],
+    renderCard: (item: any, idx: number) => React.ReactNode,
+    emptyText: string
+  ) => {
+    if (!Array.isArray(data) || data.length === 0) {
+      return <Empty description={emptyText} />;
+    }
+    return (
+      <div style={{ maxHeight: 420, overflowY: 'auto', paddingRight: 8 }}>
+        <Row gutter={[16, 16]}>
+          {data.map((item, idx) => (
+            <Col xs={24} sm={12} md={8} lg={6} key={idx}>
+              {renderCard(item, idx)}
+            </Col>
+          ))}
+        </Row>
+      </div>
+    );
   };
 
   // 接收来自首页的表单数据并自动提交
@@ -443,9 +501,19 @@ const TravelPlanPage: React.FC = () => {
 
       {/* 预览数据展示 */}
       {generationStatus === 'generating' && previewData && (
-        <Card title={previewData.title || '数据预览'} style={{ marginBottom: '24px' }}>
+        <Card 
+          title={
+            <Space align="center">
+              <PictureOutlined />
+              <span>{previewData.title || '实时数据预览'}</span>
+            </Space>
+          }
+          style={{ marginBottom: '24px' }}
+          bodyStyle={{ padding: isMobile ? '12px' : '24px' }}
+        >
           <Tabs
             defaultActiveKey="weather"
+            tabPosition={isMobile ? 'top' : 'left'}
             items={[
               {
                 key: 'weather',
@@ -469,49 +537,59 @@ const TravelPlanPage: React.FC = () => {
                       if (s.includes('阴')) return '☁️';
                       return '🌤️';
                     };
-                    return forecast && forecast.length ? (
-                      <Card>
-                        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                          {location && <Text type="secondary">地区：{location}</Text>}
-                          <List
-                            grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 4 }}
-                            dataSource={forecast}
-                            style={{ maxHeight: 420, overflow: 'auto', paddingRight: 8 }}
-                            renderItem={(d: any) => (
-                              <List.Item>
-                                <Card hoverable>
-                                  <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                                    <div style={{ fontWeight: 600 }}>{d?.date || ''}（周{d?.week || ''}）</div>
-                                    <Space size={8}>
-                                      <Tag>{emojiFor(d?.dayweather)} 日间 {d?.dayweather}</Tag>
-                                      <Tag>{emojiFor(d?.nightweather)} 夜间 {d?.nightweather}</Tag>
-                                    </Space>
-                                    <Space size={8}>
-                                      {d?.daytemp && <Tag color="blue">最高 {d.daytemp}℃</Tag>}
-                                      {d?.nighttemp && <Tag color="cyan">最低 {d.nighttemp}℃</Tag>}
-                                    </Space>
-                                    <Space size={8}>
-                                      {(d?.daywind || d?.nightwind) && <Tag color="green">风向 {d?.daywind || d?.nightwind}</Tag>}
-                                      {(d?.daypower || d?.nightpower) && <Tag>风力 {d?.daypower || d?.nightpower}</Tag>}
-                                    </Space>
-                                  </Space>
-                                </Card>
-                              </List.Item>
-                            )}
+                    return Array.isArray(forecast) && forecast.length ? (
+                      <div>
+                        {location && (
+                          <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+                            目的地：{location}
+                          </Text>
+                        )}
+                        <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8 }}>
+                          {forecast.map((d: any, idx: number) => {
+                            const cardStyle = getWeatherCardStyle(d);
+                            return (
+                              <div
+                                key={idx}
+                                style={{
+                                  minWidth: isMobile ? 220 : 240,
+                                  padding: '16px',
+                                  borderRadius: 16,
+                                  ...cardStyle,
+                                }}
+                              >
+                                <Text strong style={{ fontSize: 16, color: cardStyle.color || '#fff' }}>
+                                  {d?.date || ''}（周{d?.week || ''}）
+                                </Text>
+                                <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between' }}>
+                                  <div>
+                                  <div>{emojiFor(d?.dayweather)} 日间 {d?.dayweather}</div>
+                                  <div>{emojiFor(d?.nightweather)} 夜间 {d?.nightweather}</div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  {d?.daytemp && <div>⬆ {d.daytemp}℃</div>}
+                                  {d?.nighttemp && <div>⬇ {d.nighttemp}℃</div>}
+                                </div>
+                              </div>
+                              {(d?.daywind || d?.nightwind) && (
+                                <div style={{ marginTop: 8, fontSize: 12 }}>
+                                  风向 {d?.daywind || d?.nightwind} / 风力 {d?.daypower || d?.nightpower}
+                                </div>
+                              )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {recommendations.length ? (
+                          <Alert
+                            type="info"
+                            showIcon
+                            message="出行建议"
+                            description={recommendations.join('、')}
+                            style={{ marginTop: 16 }}
                           />
-                          {recommendations.length ? (
-                            <Alert
-                              type="info"
-                              showIcon
-                              message="出行建议"
-                              description={recommendations.join('、')}
-                            />
-                          ) : null}
-                        </Space>
-                      </Card>
-                    ) : (
-                      <Empty description="暂无天气数据" />
-                    );
+                        ) : null}
+                      </div>
+                    ) : <Empty description="暂无天气数据" />;
                   })()
                 ),
               },
@@ -520,38 +598,33 @@ const TravelPlanPage: React.FC = () => {
                 key: 'hotels',
                 label: '酒店',
                 children: (
-                  (previewData.sections?.hotels || []).length ? (
-                    <List
-                      grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 4 }}
-                      dataSource={previewData.sections?.hotels}
-                      style={{ maxHeight: 420, overflow: 'auto', paddingRight: 8 }}
-                      renderItem={(h: any) => {
-                        const cover = getImage(h);
-                        return (
-                          <List.Item>
-                            <Card
-                              hoverable
-                              cover={
-                                cover ? (
-                                  <Image src={cover} alt={getTitle(h)} height={160} style={{ objectFit: 'cover' }} />
-                                ) : undefined
-                              }
-                            >
-                              <Space direction="vertical" size={8}>
-                                <div style={{ fontWeight: 600 }}>{getTitle(h, '酒店')}</div>
-                                <Space size={8}>
-                                  {h?.rating && <Tag color="gold">评分 {h.rating}</Tag>}
-                                  {getPrice(h) && <Tag color="orange">{getPrice(h)}</Tag>}
-                                </Space>
-                                {getDesc(h) && <div style={{ color: '#666' }}>{getDesc(h)}</div>}
-                              </Space>
-                            </Card>
-                          </List.Item>
-                        );
-                      }}
-                    />
-                  ) : (
-                    <Empty description="暂无数据" />
+                  renderPreviewGrid(
+                    previewData.sections?.hotels || [],
+                    (h: any) => {
+                      const cover = getImage(h);
+                      return (
+                        <Card
+                          hoverable
+                          style={{ borderRadius: 16 }}
+                          cover={
+                            cover ? (
+                              <Image src={cover} alt={getTitle(h)} height={160} style={{ objectFit: 'cover' }} />
+                            ) : undefined
+                          }
+                        >
+                          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                            <div style={{ fontWeight: 600 }}>{getTitle(h, '酒店')}</div>
+                            <Space size={8} wrap>
+                              {h?.rating && <Tag color="gold">评分 {h.rating}</Tag>}
+                              {getPrice(h) && <Tag color="orange">{getPrice(h)}</Tag>}
+                              {h?.distance && <Tag color="blue">距景点 {h.distance}m</Tag>}
+                            </Space>
+                            {getDesc(h) && <div style={{ color: '#666' }}>{getDesc(h)}</div>}
+                          </Space>
+                        </Card>
+                      );
+                    },
+                    "暂无酒店数据"
                   )
                 ),
               },
@@ -559,52 +632,44 @@ const TravelPlanPage: React.FC = () => {
                 key: 'attractions',
                 label: '景点',
                 children: (
-                  (previewData.sections?.attractions || []).length ? (
-                    <List
-                      grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 4 }}
-                      dataSource={previewData.sections?.attractions}
-                      style={{ maxHeight: 420, overflow: 'auto', paddingRight: 8 }}
-                      renderItem={(a: any) => {
-                        const cover = getImage(a);
-                        const title = getTitle(a, '景点');
-                        const desc = getDesc(a);
-                        return (
-                          <List.Item>
-                            <Card
-                              hoverable
-                              cover={
-                                cover ? (
-                                  <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
-                                    <Image src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} />
-                                    {a?.rating && (
-                                      <Tag color="gold" style={{ position: 'absolute', top: 8, right: 8 }}>
-                                        <StarFilled /> {a.rating}
-                                      </Tag>
-                                    )}
-                                  </div>
-                                ) : undefined
-                              }
-                            >
-                              <Space direction="vertical" size={8}>
-                                <div style={{ fontWeight: 600 }}>{title}</div>
-                                <Space wrap size={6}>
-                                  {a?.category && <Tag>{a.category}</Tag>}
-                                  {a?.business_area && <Tag color="green">{a.business_area}</Tag>}
-                                  {a?.distance && <Tag color="blue">距 {a.distance}m</Tag>}
-                                  {a?.price_range && <Tag color="orange">{a.price_range}</Tag>}
-                                </Space>
-                                {a?.address && (
-                                  <Text type="secondary">{a.address}</Text>
+                  renderPreviewGrid(
+                    previewData.sections?.attractions || [],
+                    (a: any) => {
+                      const cover = getImage(a);
+                      const title = getTitle(a, '景点');
+                      const desc = getDesc(a);
+                      return (
+                        <Card
+                          hoverable
+                          style={{ borderRadius: 16, height: '100%' }}
+                          cover={
+                            cover ? (
+                              <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
+                                <Image src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} />
+                                {a?.rating && (
+                                  <Tag color="gold" style={{ position: 'absolute', top: 8, right: 8 }}>
+                                    <StarFilled /> {a.rating}
+                                  </Tag>
                                 )}
-                                {desc && <div style={{ color: '#666' }}>{desc}</div>}
-                              </Space>
-                            </Card>
-                          </List.Item>
-                        );
-                      }}
-                    />
-                  ) : (
-                    <Empty description="暂无数据" />
+                              </div>
+                            ) : undefined
+                          }
+                        >
+                          <Space direction="vertical" size={8}>
+                            <div style={{ fontWeight: 600 }}>{title}</div>
+                            <Space wrap size={6}>
+                              {a?.category && <Tag>{a.category}</Tag>}
+                              {a?.business_area && <Tag color="green">{a.business_area}</Tag>}
+                              {a?.distance && <Tag color="blue">距 {a.distance}m</Tag>}
+                              {a?.price_range && <Tag color="orange">{a.price_range}</Tag>}
+                            </Space>
+                            {a?.address && <Text type="secondary">{a.address}</Text>}
+                            {desc && <div style={{ color: '#666' }}>{desc}</div>}
+                          </Space>
+                        </Card>
+                      );
+                    },
+                    "暂无景点数据"
                   )
                 ),
               },
@@ -612,58 +677,58 @@ const TravelPlanPage: React.FC = () => {
                 key: 'restaurants',
                 label: '餐厅',
                 children: (
-                  (previewData.sections?.restaurants || []).length ? (
-                    <List
-                      grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 4 }}
-                      dataSource={previewData.sections?.restaurants}
-                      style={{ maxHeight: 420, overflow: 'auto', paddingRight: 8 }}
-                      renderItem={(r: any) => {
-                        const cover = getImage(r);
-                        const title = getTitle(r, '餐厅');
-                        const desc = getDesc(r);
-                        const price = getPrice(r);
-                        return (
-                          <List.Item>
-                            <Card
-                              hoverable
-                              cover={
-                                cover ? (
-                                  <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
-                                    <Image src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} />
-                                    {r?.rating && (
-                                      <Tag color="gold" style={{ position: 'absolute', top: 8, right: 8 }}>
-                                        <StarFilled /> {r.rating}
-                                      </Tag>
-                                    )}
-                                  </div>
-                                ) : undefined
-                              }
-                            >
-                              <Space direction="vertical" size={8}>
-                                <div style={{ fontWeight: 600 }}>{title}</div>
-                                <Space wrap size={6}>
-                                  {price && <Tag color="orange">{price}</Tag>}
-                                  {r?.price_range && <Tag color="orange">{r.price_range}</Tag>}
-                                  {r?.opening_hours && <Tag icon={<ClockCircleOutlined />} color="green">{r.opening_hours}</Tag>}
-                                  {r?.business_area && <Tag color="green">{r.business_area}</Tag>}
-                                </Space>
-                                {r?.address && <Text type="secondary">{r.address}</Text>}
-                                {Array.isArray(r?.specialties) && r.specialties.length > 0 && (
-                                  <Space wrap size={4}>
-                                    {r.specialties.slice(0, 5).map((s: string, idx: number) => (
-                                      <Tag key={idx} color="geekblue">{s}</Tag>
-                                    ))}
-                                  </Space>
+                  renderPreviewGrid(
+                    previewData.sections?.restaurants || [],
+                    (r: any) => {
+                      const cover = getImage(r);
+                      const title = getTitle(r, '餐厅');
+                      const desc = getDesc(r);
+                      const price = getPrice(r);
+                      return (
+                        <Card
+                          hoverable
+                          style={{ borderRadius: 16, height: '100%' }}
+                          cover={
+                            cover ? (
+                              <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
+                                <Image src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} />
+                                {r?.rating && (
+                                  <Tag color="gold" style={{ position: 'absolute', top: 8, right: 8 }}>
+                                    <StarFilled /> {r.rating}
+                                  </Tag>
                                 )}
-                                {desc && <div style={{ color: '#666' }}>{desc}</div>}
+                              </div>
+                            ) : undefined
+                          }
+                        >
+                          <Space direction="vertical" size={8}>
+                            <div style={{ fontWeight: 600 }}>{title}</div>
+                            <Space wrap size={6}>
+                              {price && <Tag color="orange">{price}</Tag>}
+                              {r?.price_range && <Tag color="orange">{r.price_range}</Tag>}
+                              {r?.opening_hours && (
+                                <Tag icon={<ClockCircleOutlined />} color="green">
+                                  {r.opening_hours}
+                                </Tag>
+                              )}
+                              {r?.business_area && <Tag color="green">{r.business_area}</Tag>}
+                            </Space>
+                            {r?.address && <Text type="secondary">{r.address}</Text>}
+                            {Array.isArray(r?.specialties) && r.specialties.length > 0 && (
+                              <Space wrap size={4}>
+                                {r.specialties.slice(0, 5).map((s: string, idx: number) => (
+                                  <Tag key={idx} color="geekblue">
+                                    {s}
+                                  </Tag>
+                                ))}
                               </Space>
-                            </Card>
-                          </List.Item>
-                        );
-                      }}
-                    />
-                  ) : (
-                    <Empty description="暂无数据" />
+                            )}
+                            {desc && <div style={{ color: '#666' }}>{desc}</div>}
+                          </Space>
+                        </Card>
+                      );
+                    },
+                    "暂无餐厅数据"
                   )
                 ),
               },
@@ -671,105 +736,121 @@ const TravelPlanPage: React.FC = () => {
                 key: 'flights',
                 label: '航班',
                 children: (
-                  (previewData.sections?.flights || []).length ? (
-                    <List
-                      itemLayout="vertical"
-                      dataSource={previewData.sections?.flights}
-                      style={{ maxHeight: 420, overflow: 'auto', paddingRight: 8 }}
-                      renderItem={(f: any) => (
-                        <List.Item>
-                          <Card hoverable>
-                            <Space wrap size={12}>
-                              <div style={{ fontWeight: 600 }}>{getTitle(f, '航班')}</div>
-                              {f?.airline && <Tag color="blue">{f.airline}</Tag>}
-                              {f?.flight_no && <Tag>{f.flight_no}</Tag>}
-                              {f?.departure_time && <Tag color="green">出发 {f.departure_time}</Tag>}
-                              {f?.arrival_time && <Tag color="green">到达 {f.arrival_time}</Tag>}
-                              {getPrice(f) && <Tag color="orange">{getPrice(f)}</Tag>}
-                            </Space>
-                            {getDesc(f) && (
-                              <div style={{ marginTop: 8, color: '#666' }}>{getDesc(f)}</div>
-                            )}
-                          </Card>
-                        </List.Item>
-                      )}
-                    />
-                  ) : (
-                    <Empty description="暂无数据" />
-                  )
+                  (() => {
+                    const flights = previewData.sections?.flights || [];
+                    if (!Array.isArray(flights) || flights.length === 0) {
+                      return <Empty description="暂无航班数据" />;
+                    }
+                    return (
+                      <div style={{ maxHeight: 420, overflowY: 'auto', paddingRight: 8 }}>
+                        <Timeline mode={isMobile ? 'left' : 'alternate'}>
+                          {flights.map((f: any, idx: number) => (
+                            <Timeline.Item key={idx} color="blue">
+                              <Card hoverable style={{ borderRadius: 16 }}>
+                                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                                  <Space wrap size={8}>
+                                    <div style={{ fontWeight: 600 }}>{getTitle(f, '航班')}</div>
+                                    {f?.airline && <Tag color="blue">{f.airline}</Tag>}
+                                    {f?.flight_no && <Tag>{f.flight_no}</Tag>}
+                                    {getPrice(f) && <Tag color="orange">{getPrice(f)}</Tag>}
+                                  </Space>
+                                  <Space wrap size={12}>
+                                    {f?.departure_time && <Tag color="green">出发 {f.departure_time}</Tag>}
+                                    {f?.arrival_time && <Tag color="green">到达 {f.arrival_time}</Tag>}
+                                  </Space>
+                                  {getDesc(f) && <div style={{ color: '#666' }}>{getDesc(f)}</div>}
+                                </Space>
+                              </Card>
+                            </Timeline.Item>
+                          ))}
+                        </Timeline>
+                      </div>
+                    );
+                  })()
                 ),
               },
               {
                 key: 'xhs',
                 label: '小红书',
                 children: (
-                  (previewData.sections?.xiaohongshu_notes || []).length ? (
-                    <List
-                      grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 4 }}
-                      dataSource={previewData.sections?.xiaohongshu_notes}
-                      style={{ maxHeight: 420, overflow: 'auto', paddingRight: 8 }}
-                      renderItem={(item: any) => {
-                        const cover = getImage(item);
-                        const title = getTitle(item);
-                        const desc = getDesc(item);
-                        const likes = getLikes(item);
-                        const tags = Array.isArray(item?.tag_list) ? item.tag_list.slice(0, 5) : [];
-                        const location = item?.location;
-                        return (
-                          <List.Item>
-                            <Card
-                              hoverable
-                              cover={
-                                cover ? (
-                                  <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
-                                    <Image src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} />
-                                    {typeof likes === 'number' && (
-                                      <Tag color="magenta" style={{ position: 'absolute', top: 8, right: 8 }}>
-                                        <HeartOutlined /> {likes}
-                                      </Tag>
-                                    )}
-                                  </div>
-                                ) : undefined
-                              }
-                            >
-                              <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                                <Tooltip title={title}>
-                                  <div style={{ fontWeight: 600, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                                    {title}
-                                  </div>
-                                </Tooltip>
-                                {tags.length > 0 && (
-                                  <Space wrap size={4}>
-                                    {tags.map((t: string) => (
-                                      <Tag key={t} color="geekblue">{t}</Tag>
-                                    ))}
-                                  </Space>
-                                )}
-                                {location && (
-                                  <Tag icon={<EnvironmentOutlined />} color="green">
-                                    {location}
+                  renderPreviewGrid(
+                    previewData.sections?.xiaohongshu_notes || [],
+                    (item: any) => {
+                      const cover = getImage(item);
+                      const title = getTitle(item);
+                      const desc = getDesc(item);
+                      const likes = getLikes(item);
+                      const tags = Array.isArray(item?.tag_list) ? item.tag_list.slice(0, 5) : [];
+                      const location = item?.location;
+                      return (
+                        <Card
+                          hoverable
+                          style={{ borderRadius: 16, height: '100%' }}
+                          cover={
+                            cover ? (
+                              <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
+                                <Image src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} />
+                                {typeof likes === 'number' && (
+                                  <Tag color="magenta" style={{ position: 'absolute', top: 8, right: 8 }}>
+                                    <HeartOutlined /> {likes}
                                   </Tag>
                                 )}
-                                {desc && (
-                                  <div style={{ color: '#666', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                                    {desc}
-                                  </div>
-                                )}
-                                <Space size={8}>
-                                  {item?.url && (
-                                    <Button size="small" type="link" href={item.url} target="_blank" icon={<LinkOutlined />}> 
-                                      查看原文
-                                    </Button>
-                                  )}
-                                </Space>
+                              </div>
+                            ) : undefined
+                          }
+                        >
+                          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                            <Tooltip title={title}>
+                              <div
+                                style={{
+                                  fontWeight: 600,
+                                  lineHeight: 1.4,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                {title}
+                              </div>
+                            </Tooltip>
+                            {tags.length > 0 && (
+                              <Space wrap size={4}>
+                                {tags.map((t: string) => (
+                                  <Tag key={t} color="geekblue">
+                                    {t}
+                                  </Tag>
+                                ))}
                               </Space>
-                            </Card>
-                          </List.Item>
-                        );
-                      }}
-                    />
-                  ) : (
-                    <Empty description="暂无数据" />
+                            )}
+                            {location && (
+                              <Tag icon={<EnvironmentOutlined />} color="green">
+                                {location}
+                              </Tag>
+                            )}
+                            {desc && (
+                              <div
+                                style={{
+                                  color: '#666',
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 3,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                {desc}
+                              </div>
+                            )}
+                            {item?.url && (
+                              <Button size="small" type="link" href={item.url} target="_blank" icon={<LinkOutlined />}>
+                                查看原文
+                              </Button>
+                            )}
+                          </Space>
+                        </Card>
+                      );
+                    },
+                    "暂无小红书数据"
                   )
                 ),
               },
