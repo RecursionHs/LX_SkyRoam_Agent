@@ -37,7 +37,9 @@ async def reset_password(new_password: str):
                 ),
                 {"pwd": new_password},
             )
-        logger.info("✅ 管理员密码已重置为新的 bcrypt 值")
+            result = await conn.execute(text("SELECT hashed_password FROM users WHERE id = 1"))
+            new_hashed_password = result.scalar_one()
+        logger.info(f"✅ 管理员密码已重置为新的 bcrypt 值: {new_hashed_password}")
     except Exception as e:
         logger.error(f"❌ 重置密码失败: {e}")
         raise
