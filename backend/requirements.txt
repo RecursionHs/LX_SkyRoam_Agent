@@ -75,3 +75,4 @@ tenacity==8.2.2
 typer>=0.12.3
 pyhumps==3.8.0
 
+humps
