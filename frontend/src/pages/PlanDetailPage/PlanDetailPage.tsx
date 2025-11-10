@@ -540,6 +540,23 @@ const TransportationDetails: React.FC<{ transportation: any }> = ({ transportati
   return <>{formatTransportation(transportation)}</>;
 };
 
+const ItineraryPanelHeader: React.FC<{ day: DailyItinerary }> = ({ day }) => {
+  const scheduleCount = ensureArray(day.schedule).length;
+  const mealsCount = ensureArray(day.meals).length;
+  return (
+    <Space size={12} wrap align="center">
+      <Tag color="geekblue" style={{ marginBottom: 0 }}>第 {day.day} 天</Tag>
+      <Text type="secondary">{day.date}</Text>
+      <Space size={4}>
+        <DollarOutlined style={{ color: '#52c41a' }} />
+        <Text>¥{toNumber(day.estimated_cost)}</Text>
+      </Space>
+      <Text type="secondary" style={{ fontSize: 12 }}>行程 {scheduleCount || 0} 项</Text>
+      {mealsCount > 0 && <Text type="secondary" style={{ fontSize: 12 }}>餐饮 {mealsCount} 项</Text>}
+    </Space>
+  );
+};
+
 const DailyItineraryCard: React.FC<{ day: DailyItinerary }> = ({ day }) => {
   const scheduleEntries = normalizeScheduleEntries(day.schedule);
   const meals = normalizeMeals(day.meals);
@@ -1162,15 +1179,19 @@ const PlanDetailPage: React.FC = () => {
                   <Tabs size="small" defaultActiveKey="itinerary">
                     <TabPane tab="每日行程" key="itinerary">
 
-                      <List
-                        dataSource={currentPlan.daily_itineraries}
-                        renderItem={(day: DailyItinerary) => (
-                          <List.Item>
+                      <Collapse
+                        bordered={false}
+                        defaultActiveKey={currentPlan.daily_itineraries?.slice(0, 1).map((day: DailyItinerary, idx: number) => `day-${day.day ?? idx}`)}
+                      >
+                        {currentPlan.daily_itineraries.map((day: DailyItinerary, index: number) => (
+                          <Collapse.Panel
+                            key={`day-${day.day ?? index}`}
+                            header={<ItineraryPanelHeader day={day} />}
+                          >
                             <DailyItineraryCard day={day} />
-                          </List.Item>
-                        )}
-
-                      />
+                          </Collapse.Panel>
+                        ))}
+                      </Collapse>
                     </TabPane>
                     <TabPane tab="餐厅" key="restaurants">
                       <Card title={<Space><ShopOutlined /><span>推荐餐厅</span></Space>} size="small">
