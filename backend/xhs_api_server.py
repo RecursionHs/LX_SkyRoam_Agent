@@ -141,9 +141,9 @@ class XHSAPIServer:
                     self.crawler = XiaoHongShuRealCrawler()
                     await self.crawler.start()
                 
-                # 检查登录状态
-                if not self.crawler.is_logged_in:
-                    raise HTTPException(status_code=401, detail="未登录，请先完成登录")
+                # 检查/刷新登录状态
+                if not await self.crawler.ensure_logged_in():
+                    raise HTTPException(status_code=401, detail="未登录或登录已过期，请先完成登录")
                 
                 # 执行搜索
                 results = await self.crawler.search(

@@ -804,6 +804,23 @@ class PlaywrightXHSCrawler:
                 logger.info("📂 没有找到cookies文件")
         except Exception as e:
             logger.error(f"❌ 清除cookies失败: {e}")
+
+    async def reload_cookies(self) -> bool:
+        """重新从磁盘加载Cookies到当前上下文"""
+        if not self.context:
+            logger.warning("浏览器上下文未初始化，无法重新加载Cookies")
+            return False
+        try:
+            await self.context.clear_cookies()
+        except Exception as e:
+            logger.warning(f"清理旧Cookies失败: {e}")
+        result = await self._load_cookies()
+        if result:
+            try:
+                await self.page.goto('https://www.xiaohongshu.com/explore')
+            except Exception:
+                pass
+        return result
     
     def get_cookie_info(self) -> Dict[str, Any]:
         """获取cookie信息"""

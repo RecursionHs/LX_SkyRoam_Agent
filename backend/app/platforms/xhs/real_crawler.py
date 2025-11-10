@@ -36,6 +36,7 @@ class XiaoHongShuRealCrawler(AbstractCrawler):
         try:
             await self.playwright_crawler.close()
             self.is_started = False
+            self.is_logged_in = False
             logger.info("小红书真实数据爬虫已关闭")
         except Exception as e:
             logger.error(f"关闭爬虫失败: {e}")
@@ -87,6 +88,38 @@ class XiaoHongShuRealCrawler(AbstractCrawler):
         except Exception as e:
             logger.error(f"搜索失败: {e}")
             return []
+
+    async def ensure_logged_in(self, force_reload: bool = False) -> bool:
+        """确保当前会话已登录，必要时尝试重新加载Cookies或重启浏览器"""
+        if not self.is_started:
+            await self.start()
+
+        if not force_reload and self.is_logged_in:
+            return True
+
+        if await self.check_login_status():
+            return True
+
+        logger.warning("检测到登录状态已失效，尝试重新加载Cookies")
+        try:
+            if await self.playwright_crawler.reload_cookies():
+                if await self.check_login_status():
+                    logger.info("通过重新加载Cookies恢复登录状态成功")
+                    return True
+        except Exception as e:
+            logger.error(f"重新加载Cookies失败: {e}")
+
+        logger.warning("Cookies刷新仍未登录，尝试重启浏览器后重试")
+        await self.restart()
+        return await self.check_login_status()
+
+    async def restart(self):
+        """重新启动浏览器实例"""
+        try:
+            if self.is_started:
+                await self.close()
+        finally:
+            await self.start()
     
     async def get_note_by_keyword(self, keyword: str, page: int = 1, page_size: int = 20) -> List[Dict[str, Any]]:
         """根据关键词获取笔记（兼容旧接口）"""
