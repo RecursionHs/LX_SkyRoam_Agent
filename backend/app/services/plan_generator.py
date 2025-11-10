@@ -2,9 +2,10 @@
 旅行方案生成服务
 """
 
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Set
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+from dataclasses import dataclass, field
 import copy
 from loguru import logger
 import random
@@ -65,6 +66,16 @@ def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0, max_delay:
             raise last_exception
         return wrapper
     return decorator
+
+
+@dataclass
+class PlanSegmentContext:
+    total_days: int
+    remaining_days: int
+    remaining_budget: Optional[float]
+    used_attractions: Set[str] = field(default_factory=set)
+    used_restaurants: Set[str] = field(default_factory=set)
+    used_transport: Set[str] = field(default_factory=set)
 
 
 class PlanGenerator:
@@ -223,14 +234,8 @@ class PlanGenerator:
         raw_data: Optional[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         plans: List[Dict[str, Any]] = []
-        plan_types = [
-            "经济实惠型",
-            "舒适享受型",
-            "文化深度型",
-            "自然风光型",
-            "美食体验型",
-        ]
-        for i, plan_type in enumerate(plan_types[: self.max_plans]):
+        plan_types = self._get_plan_types()
+        for i, plan_type in enumerate(plan_types):
             plan_data = await self._generate_single_plan(
                 processed_data, plan, preferences, plan_type, i, raw_data
             )
@@ -238,6 +243,126 @@ class PlanGenerator:
                 plans.append(plan_data)
         logger.info(f"使用传统算法生成了 {len(plans)} 个方案")
         return plans
+
+    def _get_plan_types(self) -> List[str]:
+        return [
+            "经济实惠型",
+            "舒适享受型",
+            "文化深度型",
+            "自然风光型",
+            "美食体验型",
+        ][: self.max_plans]
+
+    def _init_segment_context(self, plan: Any) -> PlanSegmentContext:
+        total_days = int(getattr(plan, "duration_days", 0) or 0)
+        budget = getattr(plan, "budget", None)
+        try:
+            budget = float(budget) if budget is not None else None
+        except (TypeError, ValueError):
+            budget = None
+        return PlanSegmentContext(
+            total_days=total_days,
+            remaining_days=total_days,
+            remaining_budget=budget,
+        )
+
+    def _compute_segment_budget(self, context: PlanSegmentContext, segment_days: int) -> Optional[float]:
+        if context.remaining_budget is None or context.remaining_days <= 0:
+            return None
+        safe_days = max(context.remaining_days, 1)
+        per_day = context.remaining_budget / safe_days
+        return max(per_day * segment_days, 0)
+
+    def _filter_processed_data_for_context(
+        self, processed_data: Dict[str, Any], context: Optional[PlanSegmentContext]
+    ) -> Dict[str, Any]:
+        if not context:
+            return processed_data
+        filtered: Dict[str, Any] = {}
+        for key, value in processed_data.items():
+            if key not in {"attractions", "restaurants", "transportation"}:
+                filtered[key] = value
+                continue
+            entries = []
+            for item in value or []:
+                if not isinstance(item, dict):
+                    entries.append(item)
+                    continue
+                name = self._extract_resource_name(item, key)
+                normalized = self._normalize_resource_name(name)
+                used_set = self._get_used_set(context, key)
+                if normalized and normalized in used_set:
+                    continue
+                entries.append(item)
+            filtered[key] = entries
+        return filtered
+
+    def _get_used_set(self, context: PlanSegmentContext, key: str):
+        if key == "attractions":
+            return context.used_attractions
+        if key == "restaurants":
+            return context.used_restaurants
+        if key == "transportation":
+            return context.used_transport
+        return set()
+
+    def _build_used_prompt(
+        self, context: Optional[PlanSegmentContext], key: str, limit: int = 5
+    ) -> str:
+        if not context:
+            return ""
+        used = list(self._get_used_set(context, key))
+        if not used:
+            return ""
+        names = "、".join(used[:limit])
+        return names
+
+    def _extract_resource_name(self, item: Dict[str, Any], category: str) -> Optional[str]:
+        if not isinstance(item, dict):
+            return None
+        if category == "transportation":
+            return item.get("name") or item.get("route")
+        return item.get("name")
+
+    def _normalize_resource_name(self, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return None
+        return str(value).strip().lower()
+
+    def _update_segment_context(self, context: PlanSegmentContext, plan_data: Dict[str, Any]) -> None:
+        spent = self._coerce_number(plan_data.get("total_cost", {}).get("total", 0))
+        if context.remaining_budget is not None:
+            context.remaining_budget = max(0.0, context.remaining_budget - spent)
+        segment_days = len(plan_data.get("daily_itineraries", []))
+        context.remaining_days = max(0, context.remaining_days - segment_days)
+
+        for day in plan_data.get("daily_itineraries", []):
+            for attraction in day.get("attractions", []):
+                name = None
+                if isinstance(attraction, dict):
+                    name = attraction.get("name")
+                elif isinstance(attraction, str):
+                    name = attraction
+                normalized = self._normalize_resource_name(name)
+                if normalized:
+                    context.used_attractions.add(normalized)
+
+        for restaurant in plan_data.get("restaurants", []):
+            if isinstance(restaurant, dict):
+                normalized = self._normalize_resource_name(restaurant.get("name"))
+                if normalized:
+                    context.used_restaurants.add(normalized)
+
+        transportation_entries = plan_data.get("transportation", []) or []
+        if isinstance(transportation_entries, dict):
+            transportation_entries = [transportation_entries]
+        for transport in transportation_entries:
+            if isinstance(transport, dict):
+                normalized = self._normalize_resource_name(
+                    transport.get("name") or transport.get("route")
+                )
+                if normalized:
+                    context.used_transport.add(normalized)
 
     def _split_plan_into_segments(self, plan: Any) -> List[Dict[str, Any]]:
         segments: List[Dict[str, Any]] = []
@@ -366,35 +491,56 @@ class PlanGenerator:
             logger.debug("未生成任何分段，回退到单段策略")
             return None
 
-        per_day_budget = None
-        if getattr(plan, "budget", None):
-            per_day_budget = plan.budget / max(getattr(plan, "duration_days", 1), 1)
+        plan_types = self._get_plan_types()
+        if not plan_types:
+            logger.warning("无可用方案类型，分段生成中断")
+            return None
 
-        aggregated_plans: List[Dict[str, Any]] = []
+        contexts = [self._init_segment_context(plan) for _ in plan_types]
+        aggregated_plans: List[Optional[Dict[str, Any]]] = [None] * len(plan_types)
+
         for segment in segments:
-            segment_budget = per_day_budget * segment["days"] if per_day_budget is not None else None
-            segment_plan = self._build_segment_plan(plan, segment, preferences, segment_budget)
-            segment_plans = await self._generate_traditional_plans(
-                processed_data, segment_plan, preferences, raw_data
+            logger.info(
+                "处理分段 offset=%s, days=%s", segment.get("offset"), segment.get("days")
             )
-            if not segment_plans:
-                logger.warning(
-                    f"分段生成失败：段 offset={segment['offset']} 天数={segment['days']}"
-                )
-                continue
-            aggregated_plans = self._merge_segment_plans(aggregated_plans, segment_plans)
+            for idx, plan_type in enumerate(plan_types):
+                context = contexts[idx]
+                segment_budget = self._compute_segment_budget(context, segment["days"])
+                segment_plan = self._build_segment_plan(plan, segment, preferences, segment_budget)
+                filtered_data = self._filter_processed_data_for_context(processed_data, context)
 
-        if not aggregated_plans:
+                plan_variant = await self._generate_single_plan(
+                    filtered_data, segment_plan, preferences, plan_type, idx, raw_data
+                )
+
+                if not plan_variant:
+                    logger.warning(
+                        "分段方案生成失败，plan_type=%s, offset=%s", plan_type, segment.get("offset")
+                    )
+                    continue
+
+                if aggregated_plans[idx] is None:
+                    aggregated_plans[idx] = plan_variant
+                else:
+                    aggregated_plans[idx] = self._append_segment_plan(
+                        aggregated_plans[idx], plan_variant
+                    )
+
+                self._update_segment_context(context, plan_variant)
+
+        final_plans = [plan for plan in aggregated_plans if plan]
+        if not final_plans:
             logger.error("所有分段都生成失败，回退到完整方案生成")
             return None
 
-        for final_plan in aggregated_plans:
+        for final_plan in final_plans:
             final_plan["duration_days"] = getattr(plan, "duration_days", None)
             final_plan["start_date"] = getattr(plan, "start_date", None)
             final_plan["end_date"] = getattr(plan, "end_date", None)
             final_plan["budget"] = getattr(plan, "budget", None)
-        logger.info(f"分段生成完成，共合并 {len(aggregated_plans)} 个方案段落")
-        return aggregated_plans
+
+        logger.info(f"分段生成完成，共合并 {len(final_plans)} 个完整方案")
+        return final_plans
 
     def _should_use_split_strategy(self, preferences: Optional[Dict[str, Any]]) -> bool:
         """判断是否应该使用拆分策略"""
