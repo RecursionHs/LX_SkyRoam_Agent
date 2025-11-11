@@ -10,13 +10,14 @@ import sys
 import os
 import traceback
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional, Set
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 from loguru import logger
 from dotenv import load_dotenv
+from asyncio import Queue, QueueEmpty
 
 # 必须在所有其他导入之前设置事件循环策略 - 使用ProactorEventLoop解决Playwright问题
 if sys.platform == "win32":
@@ -60,6 +61,96 @@ class CookieStatusResponse(BaseModel):
     remaining_days: Optional[int]
     is_valid: bool
 
+class XHSCrawlerPool:
+    """简单的爬虫实例池，用于支撑并发搜索请求"""
+
+    def __init__(self, max_crawlers: int = 2):
+        self.max_crawlers = max(1, max_crawlers)
+        self.available: Queue = Queue()
+        self.create_lock = asyncio.Lock()
+        self.all_crawlers: Set[XiaoHongShuRealCrawler] = set()
+        self.in_use: set[XiaoHongShuRealCrawler] = set()
+
+    async def acquire(self) -> XiaoHongShuRealCrawler:
+        """获取可用的爬虫实例，没有可用实例时按需创建或等待"""
+        try:
+            crawler = self.available.get_nowait()
+            logger.debug("从池中复用爬虫实例")
+        except QueueEmpty:
+            crawler = await self._create_or_wait()
+
+        self.in_use.add(crawler)
+        return crawler
+
+    async def _create_or_wait(self) -> XiaoHongShuRealCrawler:
+        async with self.create_lock:
+            if len(self.all_crawlers) < self.max_crawlers:
+                logger.info("创建新的小红书爬虫实例以支撑并发请求")
+                crawler = XiaoHongShuRealCrawler()
+                await crawler.start()
+                self.all_crawlers.add(crawler)
+                return crawler
+
+        logger.debug("爬虫池已满，等待空闲实例")
+        crawler = await self.available.get()
+        return crawler
+
+    async def release(self, crawler: Optional[XiaoHongShuRealCrawler], recycle: bool = True):
+        if crawler is None:
+            return
+
+        self.in_use.discard(crawler)
+
+        if not recycle:
+            await self._dispose_crawler(crawler)
+            return
+
+        if not crawler.is_started:
+            try:
+                await crawler.start()
+            except Exception as e:
+                logger.error(f"重启爬虫实例失败，执行销毁: {e}")
+                await self._dispose_crawler(crawler)
+                return
+
+        await self.available.put(crawler)
+
+    async def ensure_min_crawlers(self, count: int = 1):
+        target = min(max(0, count), self.max_crawlers)
+        async with self.create_lock:
+            while len(self.all_crawlers) < target:
+                crawler = XiaoHongShuRealCrawler()
+                await crawler.start()
+                self.all_crawlers.add(crawler)
+                await self.available.put(crawler)
+                logger.info("预热小红书爬虫实例")
+
+    async def shutdown(self):
+        logger.info("正在关闭所有小红书爬虫实例")
+        # 先等待池中实例关闭
+        while not self.available.empty():
+            try:
+                crawler = self.available.get_nowait()
+            except QueueEmpty:
+                break
+            await crawler.close()
+            self.all_crawlers.discard(crawler)
+
+        # 再关闭仍在使用中的实例
+        for crawler in list(self.in_use):
+            try:
+                await crawler.close()
+            finally:
+                self.in_use.discard(crawler)
+                self.all_crawlers.discard(crawler)
+
+    async def _dispose_crawler(self, crawler: XiaoHongShuRealCrawler):
+        try:
+            await crawler.close()
+        finally:
+            self.all_crawlers.discard(crawler)
+
+
 class XHSAPIServer:
     """小红书API服务器"""
     
@@ -69,7 +160,8 @@ class XHSAPIServer:
             description="独立的小红书爬虫API服务",
             version="1.0.0"
         )
-        self.crawler: Optional[XiaoHongShuRealCrawler] = None
+        max_crawlers = int(os.getenv("XHS_MAX_CONCURRENT_CRAWLERS", "2"))
+        self.crawler_pool = XHSCrawlerPool(max_crawlers=max_crawlers)
         self.login_crawler: Optional[XiaoHongShuLoginCrawler] = None
         self.setup_middleware()
         self.setup_routes()
@@ -137,19 +229,23 @@ class XHSAPIServer:
         async def search_notes(request: SearchRequest):
             """搜索小红书笔记"""
             try:
-                if self.crawler is None:
-                    self.crawler = XiaoHongShuRealCrawler()
-                    await self.crawler.start()
-                
-                # 检查/刷新登录状态
-                if not await self.crawler.ensure_logged_in():
-                    raise HTTPException(status_code=401, detail="未登录或登录已过期，请先完成登录")
-                
-                # 执行搜索
-                results = await self.crawler.search(
-                    keyword=request.keyword,
-                    max_notes=request.limit
-                )
+                crawler = await self.crawler_pool.acquire()
+                try:
+                    # 检查/刷新登录状态
+                    if not await crawler.ensure_logged_in():
+                        raise HTTPException(status_code=401, detail="未登录或登录已过期，请先完成登录")
+                    
+                    max_notes = request.limit or 10
+                    if max_notes <= 0:
+                        max_notes = 1
+
+                    # 执行搜索
+                    results = await crawler.search(
+                        keyword=request.keyword,
+                        max_notes=max_notes
+                    )
+                finally:
+                    await self.crawler_pool.release(crawler)
                 
                 return {
                     "status": "success",
@@ -168,15 +264,12 @@ class XHSAPIServer:
         async def start_crawler():
             """启动爬虫"""
             try:
-                if self.crawler is None:
-                    self.crawler = XiaoHongShuRealCrawler()
-                
-                await self.crawler.start()
+                await self.crawler_pool.ensure_min_crawlers(count=1)
                 
                 return {
                     "status": "success",
-                    "message": "爬虫启动成功",
-                    "is_logged_in": self.crawler.is_logged_in
+                    "message": "爬虫池已预热",
+                    "max_instances": self.crawler_pool.max_crawlers
                 }
             except Exception as e:
                 logger.error(f"启动爬虫失败: {e}")
@@ -186,10 +279,8 @@ class XHSAPIServer:
         async def stop_crawler():
             """停止爬虫"""
             try:
-                if self.crawler:
-                    await self.crawler.close()
-                    self.crawler = None
-                
+                await self.crawler_pool.shutdown()
+
                 if self.login_crawler:
                     await self.login_crawler.close()
                     self.login_crawler = None
