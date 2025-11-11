@@ -2383,6 +2383,8 @@ class PlanGenerator:
         """组装完整的旅行方案"""
         try:
             assembled_plans = []
+            restaurant_lookup = self._build_lookup_map(processed_data.get("restaurants", []))
+            hotel_lookup = self._build_lookup_map(processed_data.get("hotels", []))
             
             # 为每个住宿方案创建完整的旅行计划
             for i, accommodation in enumerate(accommodation_plans):
@@ -2400,7 +2402,10 @@ class PlanGenerator:
                     
                     # 添加航班和酒店信息
                     travel_plan["flight"] = accommodation.get("flight", {})
-                    travel_plan["hotel"] = accommodation.get("hotel", {})
+                    travel_plan["hotel"] = self._merge_hotel_details(
+                        accommodation.get("hotel", {}),
+                        hotel_lookup
+                    )
                     accommodation_daily = accommodation.get("daily_accommodation", [])
                     
                     # 构建每日行程
@@ -2487,18 +2492,21 @@ class PlanGenerator:
                         stay_info = get_day_entry_from_list(accommodation_daily, day_num)
                         if stay_info:
                             if stay_info.get("hotel"):
-                                daily_plan["stay"] = stay_info["hotel"]
-                            notes = stay_info.get("notes") or stay_info.get("accommodation_highlights") or []
-                            if notes:
-                                daily_plan["daily_tips"].extend(notes)
-                            stay_cost = stay_info.get("daily_cost") or stay_info.get("estimated_cost") or 0
-                            if isinstance(stay_cost, str):
-                                try:
-                                    stay_cost = float(stay_cost)
-                                except (TypeError, ValueError):
-                                    stay_cost = 0
-                            if isinstance(stay_cost, (int, float)):
-                                daily_plan["estimated_cost"] += stay_cost
+                                daily_plan["stay"] = self._merge_hotel_details(
+                                    stay_info["hotel"],
+                                    hotel_lookup
+                                )
+                        notes = stay_info.get("notes") or stay_info.get("accommodation_highlights") or []
+                        if notes:
+                            daily_plan["daily_tips"].extend(notes)
+                        stay_cost = stay_info.get("daily_cost") or stay_info.get("estimated_cost") or 0
+                        if isinstance(stay_cost, str):
+                            try:
+                                stay_cost = float(stay_cost)
+                            except (TypeError, ValueError):
+                                stay_cost = 0
+                        if isinstance(stay_cost, (int, float)):
+                            daily_plan["estimated_cost"] += stay_cost
                         
                         # 按时间排序schedule
                         daily_plan["schedule"] = sorted(
@@ -2511,7 +2519,10 @@ class PlanGenerator:
                     travel_plan["daily_itineraries"] = daily_itineraries
                     
                     # 添加餐厅总览
-                    travel_plan["restaurants"] = self._extract_restaurants_summary(dining_plans)
+                    travel_plan["restaurants"] = self._merge_restaurant_details(
+                        self._extract_restaurants_summary(dining_plans),
+                        restaurant_lookup
+                    )
                     
                     # 添加交通总览
                     travel_plan["transportation"] = transportation_plans
@@ -2608,6 +2619,114 @@ class PlanGenerator:
                     seen_restaurants.add(restaurant_name)
         
         return restaurants
+
+    def _merge_restaurant_details(
+        self,
+        restaurant_summaries: List[Dict[str, Any]],
+        lookup: Dict[str, Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        if not restaurant_summaries:
+            return []
+        merged_list = []
+        list_fields = {"photos", "images", "specialties", "signature_dishes", "recommended_dishes", "menu_highlights"}
+        for summary in restaurant_summaries:
+            detailed = self._find_lookup_match(lookup, summary)
+            if detailed:
+                merged_list.append(self._combine_detail_dicts(detailed, summary, list_fields))
+            else:
+                merged_list.append(summary)
+        return merged_list
+
+    def _merge_hotel_details(
+        self,
+        hotel: Optional[Dict[str, Any]],
+        lookup: Dict[str, Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        if not hotel:
+            return hotel
+        list_fields = {"amenities", "photos", "images", "room_types", "available_options"}
+        detailed = self._find_lookup_match(lookup, hotel)
+        if detailed:
+            return self._combine_detail_dicts(detailed, hotel, list_fields)
+        return hotel
+
+    def _combine_detail_dicts(
+        self,
+        source: Dict[str, Any],
+        override: Dict[str, Any],
+        list_fields: Set[str]
+    ) -> Dict[str, Any]:
+        merged = copy.deepcopy(source) if source else {}
+        if not override:
+            return merged
+
+        for key, value in override.items():
+            if key in list_fields:
+                merged[key] = self._merge_list_values(merged.get(key), value)
+            else:
+                if value not in (None, "", [], {}):
+                    merged[key] = value
+        return merged
+
+    def _merge_list_values(self, existing: Any, extra: Any) -> List[Any]:
+        result = []
+        seen = set()
+
+        for collection in (existing, extra):
+            for item in self._ensure_list(collection):
+                marker = self._make_hashable(item)
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                result.append(item)
+        return result
+
+    def _ensure_list(self, value: Any) -> List[Any]:
+        if value is None or value == "":
+            return []
+        if isinstance(value, list):
+            return value
+        return [value]
+
+    def _make_hashable(self, value: Any) -> str:
+        try:
+            return json.dumps(value, sort_keys=True, ensure_ascii=False)
+        except TypeError:
+            return str(value)
+
+    def _build_lookup_map(self, items: Optional[List[Dict[str, Any]]]) -> Dict[str, Dict[str, Any]]:
+        lookup: Dict[str, Dict[str, Any]] = {}
+        if not items:
+            return lookup
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_id = item.get("id")
+            if item_id:
+                lookup[f"id::{str(item_id).lower()}"] = item
+            name_key = self._normalize_name(item.get("name"))
+            if name_key:
+                lookup[f"name::{name_key}"] = item
+        return lookup
+
+    def _find_lookup_match(self, lookup: Dict[str, Dict[str, Any]], target: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not target or not lookup:
+            return None
+        keys = []
+        if target.get("id"):
+            keys.append(f"id::{str(target['id']).lower()}")
+        name_key = self._normalize_name(target.get("name"))
+        if name_key:
+            keys.append(f"name::{name_key}")
+        for key in keys:
+            if key and key in lookup:
+                return lookup[key]
+        return None
+
+    def _normalize_name(self, name: Optional[str]) -> str:
+        if not name:
+            return ""
+        return "".join(str(name).lower().split())
 
     def _calculate_total_cost(
         self, 
