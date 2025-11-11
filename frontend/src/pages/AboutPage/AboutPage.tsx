@@ -54,8 +54,8 @@ const AboutPage: React.FC = () => {
   ];
 
   const technologies = [
-    'React', 'TypeScript', 'FastAPI', 'Python', 'PostgreSQL', 
-    'Redis', 'OpenAI GPT', 'Docker', 'Kubernetes', 'AWS'
+    'React', 'ANT-Design', 'TypeScript', 'FastAPI', 'Python', 'PostgreSQL', 
+    'Redis', 'Docker', 'OpenAI GPT', 'MCP'
   ];
 
   return (
