@@ -20,7 +20,8 @@ cd LX_SkyRoam_Agent
 #### 2. 配置环境
 ```bash
 # 复制环境配置文件
-cp env.example .env
+cd backend
+cp .env.example .env
 
 # 编辑配置文件，添加你的API密钥
 # 至少需要配置以下内容：

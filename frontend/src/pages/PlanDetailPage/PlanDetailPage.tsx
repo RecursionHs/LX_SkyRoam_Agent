@@ -90,6 +90,8 @@ interface DailyItinerary {
     address?: string;
     price?: number | string;
     rating?: number | string;
+    stars?: number | string;
+    amenities?: Array<string | { name: string }>;
   };
 }
 
@@ -122,7 +124,11 @@ const toNumber = (value: any, fallback = 0): number => {
   return Number.isFinite(num) ? num : fallback;
 };
 
-const ensureArray = (value: any): any[] => (Array.isArray(value) ? value : []);
+const ensureArray = (value: any): any[] => {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null || value === '') return [];
+  return [value];
+};
 
 const normalizeAttractions = (items: any): Attraction[] =>
   ensureArray(items).map((item: any, index: number) => {
@@ -252,6 +258,34 @@ const formatDistance = (distance: any): string => {
   return String(distance);
 };
 
+const TRANSPORT_TYPE_LABELS: Record<string, string> = {
+  car: '自驾/汽车',
+  driving: '自驾',
+  taxi: '打车',
+  ride: '打车',
+  bus: '公交',
+  coach: '大巴',
+  subway: '地铁',
+  metro: '地铁',
+  train: '火车',
+  highspeed_train: '高铁',
+  flight: '航班',
+  airplane: '航班',
+  bike: '骑行',
+  bicycle: '骑行',
+  walk: '步行',
+  ferry: '轮渡',
+  ship: '轮渡',
+  boat: '船',
+  tram: '有轨电车',
+};
+
+const getTransportationTypeLabel = (type?: string): string => {
+  if (!type) return '交通';
+  const key = String(type).toLowerCase();
+  return TRANSPORT_TYPE_LABELS[key] || type;
+};
+
 const formatTransportation = (transportation: any): React.ReactNode => {
   if (!transportation) return '暂无';
 
@@ -261,11 +295,12 @@ const formatTransportation = (transportation: any): React.ReactNode => {
         {transportation.map((t: any, idx: number) => {
           if (t == null) return <span key={idx}>-</span>;
           if (typeof t === 'object') {
-            const type = t.type || '交通';
+            const type = getTransportationTypeLabel(t.type);
             const distance = typeof t.distance === 'number' ? `${t.distance} 公里` : (t.distance || '');
             const duration = typeof t.duration === 'number' ? `${t.duration} 分钟` : (t.duration || '');
-            const cost = t.cost != null ? `¥${t.cost}` : '';
-            const parts = [type, distance, duration, cost].filter(Boolean).join(' · ');
+            const hasPrice = t.price !== undefined && t.price !== null;
+            const price = hasPrice ? `¥${toNumber(t.price)}` : (t.cost != null ? `¥${toNumber(t.cost)}` : '');
+            const parts = [type, distance, duration, price].filter(Boolean).join(' · ');
             return <span key={idx}>{parts || type}</span>;
           }
           return <span key={idx}>{String(t)}</span>;
@@ -275,15 +310,27 @@ const formatTransportation = (transportation: any): React.ReactNode => {
   }
 
   if (typeof transportation === 'object') {
-    const type = transportation.type || '交通';
+    const type = getTransportationTypeLabel(transportation.type);
     const distance = typeof transportation.distance === 'number' ? `${transportation.distance} 公里` : (transportation.distance || '');
     const duration = typeof transportation.duration === 'number' ? `${transportation.duration} 分钟` : (transportation.duration || '');
-    const cost = transportation.cost != null ? `¥${transportation.cost}` : '';
-    const parts = [type, distance, duration, cost].filter(Boolean).join(' · ');
+    const hasPrice = transportation.price !== undefined && transportation.price !== null;
+    const price = hasPrice ? `¥${toNumber(transportation.price)}` : (transportation.cost != null ? `¥${toNumber(transportation.cost)}` : '');
+    const parts = [type, distance, duration, price].filter(Boolean).join(' · ');
     return parts || type;
   }
 
   return String(transportation);
+};
+
+const renderTransportationPriceTag = (price: any): React.ReactNode => {
+  if (price === undefined || price === null || price === '') return null;
+  const value = toNumber(price, 0);
+  const isFree = value === 0;
+  return (
+    <Tag color={isFree ? 'cyan' : 'gold'}>
+      {isFree ? '费用 ¥0 (免费)' : `费用 ¥${value}`}
+    </Tag>
+  );
 };
 
 interface LimitedTagListProps {
@@ -475,12 +522,12 @@ const TransportationDetails: React.FC<{ transportation: any }> = ({ transportati
         {transportation.map((route: any, idx: number) => (
           <Card key={idx} size="small" style={{ borderColor: '#f0f0f0' }}>
             <Space direction="vertical" size={4} style={{ width: '100%' }}>
-              <Text strong>{route?.type || '交通'} {route?.name}</Text>
+              <Text strong>{getTransportationTypeLabel(route?.type)} {route?.name}</Text>
               {route?.route && <Text type="secondary" style={{ fontSize: 12 }}>{route.route}</Text>}
               <Space size={4} wrap>
                 {route?.duration && <Tag color="blue">耗时 {route.duration}{typeof route.duration === 'number' ? ' 分钟' : ''}</Tag>}
                 {route?.distance && <Tag color="green">距离 {route.distance}{typeof route.distance === 'number' ? ' 公里' : ''}</Tag>}
-                {route?.price && <Tag color="gold">费用 ¥{route.price}</Tag>}
+                {renderTransportationPriceTag(route?.price ?? route?.cost)}
               </Space>
               {route?.usage_tips && ensureArray(route.usage_tips).length > 0 && (
                 <LimitedTagList items={ensureArray(route.usage_tips)} color="geekblue" />
@@ -501,12 +548,12 @@ const TransportationDetails: React.FC<{ transportation: any }> = ({ transportati
           {primaryRoutes.map((route: any, idx: number) => (
             <Card key={`primary-${idx}`} size="small" style={{ borderColor: '#f0f0f0' }}>
               <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                <Text strong>{route?.type || '交通'} {route?.name}</Text>
+                <Text strong>{getTransportationTypeLabel(route?.type)} {route?.name}</Text>
                 {route?.route && <Text type="secondary" style={{ fontSize: 12 }}>{route.route}</Text>}
                 <Space size={4} wrap>
                   {route?.duration && <Tag color="blue">耗时 {route.duration}{typeof route.duration === 'number' ? ' 分钟' : ''}</Tag>}
                   {route?.distance && <Tag color="green">距离 {route.distance}{typeof route.distance === 'number' ? ' 公里' : ''}</Tag>}
-                  {route?.price && <Tag color="gold">费用 ¥{route.price}</Tag>}
+                  {renderTransportationPriceTag(route?.price ?? route?.cost)}
                 </Space>
                 {route?.usage_tips && ensureArray(route.usage_tips).length > 0 && (
                   <LimitedTagList items={ensureArray(route.usage_tips)} color="geekblue" />
@@ -520,7 +567,7 @@ const TransportationDetails: React.FC<{ transportation: any }> = ({ transportati
               <div style={{ marginTop: 4 }}>
                 {backupRoutes.map((route: any, idx: number) => (
                   <Tag key={`backup-${idx}`} style={{ marginBottom: 4 }}>
-                    {route?.type || '路线'} {route?.name}
+                    {getTransportationTypeLabel(route?.type) || '路线'} {route?.name}
                   </Tag>
                 ))}
               </div>
@@ -620,7 +667,19 @@ const DailyItineraryCard: React.FC<{ day: DailyItinerary }> = ({ day }) => {
                       <Space size={4}>
                         {day.stay.rating && <Tag color="gold">评分 {day.stay.rating}</Tag>}
                         {day.stay.price != null && <Tag color="cyan">¥{toNumber(day.stay.price)} /晚</Tag>}
+                        {day.stay.stars && <Tag color="blue">{day.stay.stars} 星</Tag>}
                       </Space>
+                      {ensureArray(day.stay.amenities).length > 0 && (
+                        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>设施服务</Text>
+                          <LimitedTagList
+                            items={ensureArray(day.stay.amenities)}
+                            color="cyan"
+                            max={6}
+                            tagStyle={{ fontSize: 10 }}
+                          />
+                        </Space>
+                      )}
                     </Space>
                   ) : (
                     <Text type="secondary">参考主方案住宿</Text>
@@ -1267,6 +1326,17 @@ const PlanDetailPage: React.FC = () => {
                                       </Col>
                                     )}
                                   </Row>
+                                  {ensureArray(currentPlan.hotel.amenities).length > 0 && (
+                                    <Space direction="vertical" size={2}>
+                                      <Text type="secondary" style={{ fontSize: '11px' }}>设施服务</Text>
+                                      <LimitedTagList
+                                        items={ensureArray(currentPlan.hotel.amenities)}
+                                        color="cyan"
+                                        max={8}
+                                        tagStyle={{ fontSize: 10 }}
+                                      />
+                                    </Space>
+                                  )}
                                 </Space>
                               </Col>
                             </Row>
@@ -1344,6 +1414,17 @@ const PlanDetailPage: React.FC = () => {
                                               </Col>
                                             )}
                                           </Row>
+                                          {ensureArray(hotel.amenities).length > 0 && (
+                                            <Space direction="vertical" size={2}>
+                                              <Text type="secondary" style={{ fontSize: '11px' }}>设施服务</Text>
+                                              <LimitedTagList
+                                                items={ensureArray(hotel.amenities)}
+                                                color="cyan"
+                                                max={6}
+                                                tagStyle={{ fontSize: 10 }}
+                                              />
+                                            </Space>
+                                          )}
                                         </Space>
                                       </Col>
                                     </Row>
