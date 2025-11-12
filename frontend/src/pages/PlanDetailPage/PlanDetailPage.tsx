@@ -1182,13 +1182,7 @@ const PlanDetailPage: React.FC = () => {
                 size="small"
                 icon={<ShareAltOutlined />}
                 onClick={() => {
-                  const shareUrl = window.location.href;
-                  const title = planDetail?.destination ? `${planDetail.destination}旅行方案` : '旅行方案分享';
-                  if ((navigator as any).share) {
-                    (navigator as any).share({ title, url: shareUrl }).catch(() => setShareModalVisible(true));
-                  } else {
-                    setShareModalVisible(true);
-                  }
+                  setShareModalVisible(true);
                 }}
               >
                 分享
@@ -1949,10 +1943,16 @@ const PlanDetailPage: React.FC = () => {
               onClick={() => {
                 const shareUrl = window.location.href;
                 const title = planDetail?.destination ? `${planDetail.destination}旅行方案` : '旅行方案分享';
-                if ((navigator as any).share) {
-                  (navigator as any).share({ title, url: shareUrl });
-                } else {
-                  message.info('当前浏览器不支持系统分享，请使用下方方式');
+                try {
+                  const canNativeShare = typeof (navigator as any).share === 'function' && (window as any).isSecureContext;
+                  if (canNativeShare) {
+                    Promise.resolve((navigator as any).share({ title, url: shareUrl }))
+                      .catch(() => message.info('系统分享未完成或被取消'));
+                  } else {
+                    message.info('当前浏览器不支持系统分享，请使用下方方式');
+                  }
+                } catch {
+                  message.info('系统分享不可用，请使用下方方式');
                 }
               }}
             >
