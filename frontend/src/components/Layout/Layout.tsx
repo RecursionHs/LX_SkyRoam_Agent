@@ -142,6 +142,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       items={menuItems}
       onClick={({ key }) => handleMenuClick(key)}
       style={{ border: 'none' }}
+      theme="dark"
     />
   );
 
@@ -154,7 +155,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <img src="/images/logo.png" alt="Logo" style={{ width: 24, height: 24 }} />
             </div>
             <Title level={3} className="brand-title gradient-text" style={{ margin: 0, fontWeight: '800' }}>
-              洛曦 云旅Agent
+              洛曦 云旅
             </Title>
           </div>
 

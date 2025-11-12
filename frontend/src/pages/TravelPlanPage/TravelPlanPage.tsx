@@ -497,7 +497,7 @@ const TravelPlanPage: React.FC = () => {
                 '100%': '#87d068',
               }}
               format={(p) => (
-                <span style={{ color: '#fff' }}>{(p ?? 0).toFixed(1)}%</span>
+                <span style={{ color: '#fff' }}>{(p ?? 0).toFixed(2)}%</span>
               )}
             />
             <Text type="secondary" style={{ marginTop: '8px', display: 'block' }}>

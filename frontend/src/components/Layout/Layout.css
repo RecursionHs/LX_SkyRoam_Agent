@@ -40,6 +40,43 @@
     display: inline-flex !important;
     color: #fff;
   }
+
+  .header-inner {
+    grid-template-columns: 1fr auto;
+    padding: 0 12px;
+    column-gap: 8px;
+  }
+  .brand-icon {
+    width: 24px;
+    height: 24px;
+    margin-right: 8px;
+  }
+  .brand-title {
+    font-size: 18px !important;
+    max-width: 60vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .header-actions {
+    gap: 8px;
+  }
+  .header-username {
+    display: none;
+  }
+  .header-actions .ant-avatar {
+    width: 28px;
+    height: 28px;
+    line-height: 28px;
+  }
+  .header-actions .ant-btn {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+  .mobile-menu-button {
+    height: 28px;
+  }
 }
 
 /* 桌面端：隐藏移动端按钮 */

@@ -49,6 +49,12 @@
 
 /* 文本与基础元素统一为暗色主题 */
 body, .ant-layout, .ant-layout-content { background: var(--bg) !important; }
+html, body, #root { height: 100%; min-height: 100vh; }
+@supports (height: 100dvh) {
+  html, body, #root { min-height: 100dvh; }
+  .ant-layout { min-height: 100dvh !important; }
+  .app-content { min-height: calc(100dvh - 64px - 70px) !important; }
+}
 .ant-typography { color: var(--text) !important; }
 .ant-typography-secondary { color: var(--text-soft) !important; }
 
@@ -111,6 +117,11 @@ body, .ant-layout, .ant-layout-content { background: var(--bg) !important; }
 .ant-dropdown-menu .ant-dropdown-menu-item a {
   color: var(--text) !important;
 }
+
+/* 弹窗内的玻璃卡片需透明卡体，避免白色卡体与暗色背景冲突 */
+.ant-modal .glass-card { background: var(--overlay) !important; border-color: var(--border) !important; }
+.ant-modal .glass-card .ant-card-body { background: transparent !important; }
+.ant-modal .glass-card .ant-typography, .ant-modal .glass-card p { color: var(--text) !important; }
 .ant-dropdown-menu .ant-dropdown-menu-item:hover {
   background: rgba(255,255,255,0.08) !important;
 }
@@ -128,6 +139,12 @@ body, .ant-layout, .ant-layout-content { background: var(--bg) !important; }
 }
 .ant-drawer .ant-menu-item:hover {
   background: rgba(255,255,255,0.06) !important;
+}
+.ant-drawer .ant-menu-light .ant-menu-item-selected {
+  background: transparent !important;
+}
+.ant-drawer .ant-menu-light .ant-menu-item-selected .ant-menu-title-content {
+  color: var(--text-strong) !important;
 }
 .ant-modal-header, .ant-drawer-header { border-bottom-color: var(--border-soft) !important; }
 .ant-modal-header { background: transparent !important; }
