@@ -255,6 +255,21 @@ a:hover { color: #bfdbfe; }
   transform: none !important;
 }
 
+/* TravelPlan 页面专属样式：提示文本与预览卡片悬浮动效 */
+.travel-plan-page .ant-alert-message,
+.travel-plan-page .ant-alert-description {
+  color: #fff !important;
+}
+
+.travel-plan-page .ant-card-hoverable {
+  transition: transform 0.25s ease, box-shadow 0.25s ease !important;
+}
+.travel-plan-page .ant-card-hoverable:hover {
+  transform: translateY(-4px) !important;
+  box-shadow: 0 8px 24px rgba(167, 139, 250, 0.3) !important;
+  border-color: rgba(167,139,250,0.5) !important;
+}
+
 /* 行程时间线暗色适配：透明点与柔和线条 */
 .plan-detail-page .ant-timeline .ant-timeline-item-head,
 .plan-detail-page .ant-timeline .ant-timeline-item-head-custom {

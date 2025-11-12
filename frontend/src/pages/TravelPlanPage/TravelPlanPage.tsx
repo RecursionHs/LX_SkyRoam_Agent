@@ -496,6 +496,9 @@ const TravelPlanPage: React.FC = () => {
                 '0%': '#108ee9',
                 '100%': '#87d068',
               }}
+              format={(p) => (
+                <span style={{ color: '#fff' }}>{(p ?? 0).toFixed(1)}%</span>
+              )}
             />
             <Text type="secondary" style={{ marginTop: '8px', display: 'block' }}>
               正在收集数据并生成方案...
