@@ -345,7 +345,7 @@ const LimitedTagList: React.FC<LimitedTagListProps> = ({ items, color = 'default
   if (!items || items.length === 0) return null;
   const data = typeof max === 'number' ? items.slice(0, max) : items;
   return (
-    <Space wrap size={4}>
+    <Space wrap size={4} className="limited-tags">
       {data.map((item, index) => (
         <Tag key={index} color={color} style={{ fontSize: 10, ...tagStyle }}>
           {renderItem ? renderItem(item, index) : (typeof item === 'string' ? item : item?.name || '推荐项')}
@@ -612,7 +612,7 @@ const DailyItineraryCard: React.FC<{ day: DailyItinerary }> = ({ day }) => {
   const timelineItems = buildTimelineItems(scheduleEntries);
 
   return (
-    <Card size="small" style={{ width: '100%' }}>
+    <Card size="small" className="glass-card" style={{ width: '100%' }}>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <Space size={8} align="center" wrap>
           <Tag color="geekblue">第 {day.day} 天</Tag>
@@ -621,7 +621,7 @@ const DailyItineraryCard: React.FC<{ day: DailyItinerary }> = ({ day }) => {
         </Space>
         <Row gutter={[24, 24]}>
           <Col xs={24} lg={14}>
-            <Card size="small" title="行程安排" bordered={false} style={{ backgroundColor: 'var(--overlay)' }}>
+            <Card size="small" title="行程安排" bordered={false} className="glass-card">
               {timelineItems.length > 0 ? (
                 <Timeline mode="left" items={timelineItems} />
               ) : (
@@ -629,7 +629,7 @@ const DailyItineraryCard: React.FC<{ day: DailyItinerary }> = ({ day }) => {
               )}
             </Card>
             {meals.length > 0 && (
-              <Card size="small" title="餐饮安排" bordered={false} style={{ marginTop: 16 }}>
+              <Card size="small" title="餐饮安排" bordered={false} className="glass-card" style={{ marginTop: 16 }}>
                 <List
                   size="small"
                   dataSource={meals}
@@ -646,11 +646,11 @@ const DailyItineraryCard: React.FC<{ day: DailyItinerary }> = ({ day }) => {
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <AttractionSection attractions={attractions} />
               {day.transportation && (
-                <Card size="small" title="交通" bordered={false}>
+                <Card size="small" title="交通" bordered={false} className="glass-card">
                   <TransportationDetails transportation={day.transportation} />
                 </Card>
               )}
-              <Card size="small" title="费用与住宿" bordered={false}>
+              <Card size="small" title="费用与住宿" bordered={false} className="glass-card">
                 <Space direction="vertical" size={4} style={{ width: '100%' }}>
                   <Space align="center">
                     <DollarOutlined style={{ color: '#52c41a' }} />
@@ -1128,21 +1128,21 @@ const PlanDetailPage: React.FC = () => {
   return (
     <div className="plan-detail-page" style={{ maxWidth: '1200px', margin: '0 auto' }}>
       {/* 计划头部信息 */}
-      <Card style={{ marginBottom: '24px' }}>
+      <Card className="plan-header-card" style={{ marginBottom: '24px' }}>
         <Row gutter={[24, 16]} align="middle">
           <Col xs={24} md={16}>
             <Space direction="vertical" size="small">
-              <Title level={2} style={{ margin: 0 }}>
+              <Title level={2} className="gradient-text" style={{ margin: 0 }}>
                 {planDetail.title}
               </Title>
               <Space>
-                <Tag color="blue" icon={<EnvironmentOutlined />}>
+                <Tag icon={<EnvironmentOutlined />}>
                   {planDetail.destination}
                 </Tag>
-                <Tag color="green" icon={<CalendarOutlined />}>
+                <Tag icon={<CalendarOutlined />}>
                   {planDetail.duration_days} 天
                 </Tag>
-                <Tag color="orange" icon={<StarOutlined />}>
+                <Tag icon={<StarOutlined />}>
                   评分: {ratingSummary ? ratingSummary.average.toFixed(1) : (planDetail.score?.toFixed(1) || 'N/A')}
                 </Tag>
                 {typeof planDetail.is_public !== 'undefined' && (
@@ -1154,9 +1154,12 @@ const PlanDetailPage: React.FC = () => {
             </Space>
           </Col>
           <Col xs={24} md={8}>
-            <Space>
+            <Space wrap size="small" style={{ width: '100%' }}>
               {!isPublicView && isAdmin && (
                 <Button 
+                  type="default"
+                  size="small"
+                  className="btn-secondary"
                   icon={<EditOutlined />}
                   onClick={() => navigate(`/plan/${id}/edit`)}
                 >
@@ -1164,6 +1167,8 @@ const PlanDetailPage: React.FC = () => {
                 </Button>
               )}
               <Button 
+                className="btn-secondary"
+                size="small"
                 icon={<ShareAltOutlined />}
                 onClick={() => {
                   const shareUrl = window.location.href;
@@ -1179,11 +1184,13 @@ const PlanDetailPage: React.FC = () => {
               </Button>
               {!isPublicView && (
                 <>
-                  <Button type="default" icon={<CloudOutlined />} loading={publishing} onClick={togglePublish}>
+                  <Button type="default" size="small" className="btn-secondary" icon={<CloudOutlined />} loading={publishing} onClick={togglePublish}>
                     {planDetail.is_public ? '取消公开' : '公开发布'}
                   </Button>
                   <Button 
                     type="primary"
+                    className="btn-primary"
+                    size="small"
                     icon={<ExportOutlined />}
                     onClick={() => setExportModalVisible(true)}
                   >
@@ -1198,7 +1205,7 @@ const PlanDetailPage: React.FC = () => {
 
       {/* 方案选择 */}
       {planDetail.generated_plans && planDetail.generated_plans.length > 1 && (
-        <Card title="选择方案" style={{ marginBottom: '24px' }}>
+        <Card title="选择方案" className="glass-card" style={{ marginBottom: '24px' }}>
           <Row gutter={[16, 16]}>
             {planDetail.generated_plans.map((plan, index) => (
               <Col xs={24} sm={12} md={8} key={index}>
@@ -1234,7 +1241,7 @@ const PlanDetailPage: React.FC = () => {
           <TabPane tab="方案概览" key="overview">
             <Row gutter={[24, 24]}>
               <Col xs={24} lg={16}>
-                <Card title="行程安排">
+                <Card title="行程安排" className="glass-card">
                   <Tabs size="small" defaultActiveKey="itinerary">
                     <TabPane tab="每日行程" key="itinerary">
 
@@ -1253,7 +1260,7 @@ const PlanDetailPage: React.FC = () => {
                       </Collapse>
                     </TabPane>
                     <TabPane tab="餐厅" key="restaurants">
-                      <Card title={<Space><ShopOutlined /><span>推荐餐厅</span></Space>} size="small">
+                      <Card title={<Space><ShopOutlined /><span>推荐餐厅</span></Space>} size="small" className="glass-card">
                         <List
                           size="small"
                           dataSource={currentPlan.restaurants}
@@ -1266,9 +1273,9 @@ const PlanDetailPage: React.FC = () => {
                       </Card>
                     </TabPane>
                     <TabPane tab="酒店" key="hotel">
-                      <Card title={<Space><ShopOutlined /><span>酒店信息</span></Space>} size="small">
+                      <Card title={<Space><ShopOutlined /><span>酒店信息</span></Space>} size="small" className="glass-card">
                         {currentPlan.hotel ? (
-                          <Card size="small" style={{ backgroundColor: 'var(--overlay)' }}>
+                          <Card size="small" className="glass-card">
                             <Row gutter={[8, 8]} align="middle">
                               <Col span={24}>
                                 <Space direction="vertical" size={4} style={{ width: '100%' }}>
@@ -1348,6 +1355,7 @@ const PlanDetailPage: React.FC = () => {
                         {currentPlan.hotel?.available_options && currentPlan.hotel.available_options.length > 1 && (
                           <Card 
                             size="small" 
+                            className="glass-card"
                             title={<Space><HomeOutlined /><span>更多酒店选择</span><Text type="secondary" style={{ fontSize: '12px' }}>({currentPlan.hotel.available_options.length}个选项)</Text></Space>}
                             style={{ marginTop: '12px' }}
                           >
@@ -1357,7 +1365,7 @@ const PlanDetailPage: React.FC = () => {
                                 : currentPlan.hotel.available_options.slice(1, 6)
                               ).map((hotel: any, index: number) => (
                                 <Col span={24} key={index}>
-                                  <Card size="small" style={{ backgroundColor: 'var(--overlay)' }}>
+                                  <Card size="small" className="glass-card">
                                     <Row gutter={8} align="middle">
                                       <Col flex="60px">
                                         <div style={{
@@ -1561,7 +1569,7 @@ const PlanDetailPage: React.FC = () => {
                         <Row gutter={[8, 8]}>
                           {currentPlan.xiaohongshu_notes.slice(0, 8).map((note: any, idx: number) => (
                             <Col xs={12} sm={12} md={12} lg={12} key={idx}>
-                              <div style={{ position: 'relative', border: '1px solid #f0f0f0', borderRadius: 6, overflow: 'hidden', background: '#fafafa' }}>
+                              <div style={{ position: 'relative', border: '1px solid var(--border-soft)', borderRadius: 6, overflow: 'hidden', background: 'var(--overlay)' }}>
                                 <a href={note.url} target="_blank" rel="noopener noreferrer" style={{ display: 'block' }}>
                                   {note.img_urls && note.img_urls.length > 0 ? (
                                     <img src={note.img_urls[0]} alt={note.title || '小红书笔记'} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
@@ -1577,7 +1585,7 @@ const PlanDetailPage: React.FC = () => {
                                     ))}
                                   </div>
                                   <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
-                                    <Text type="secondary" style={{ fontSize: '10px' }}>👍 {note.liked_count || 0}</Text>
+                                    <Text style={{ fontSize: '10px', color: '#ffd666' }}>👍 {note.liked_count || 0}</Text>
                                     {note.url && (
                                       <a href={note.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '10px' }}>打开笔记</a>
                                     )}
@@ -1715,14 +1723,14 @@ const PlanDetailPage: React.FC = () => {
                                 {currentPlan.weather_info.raw_data.forecast.map((day: any, index: number) => (
                                   <div key={index} style={{ 
                                     padding: '8px', 
-                                    border: '1px solid #f0f0f0', 
+                                    border: '1px solid var(--border-soft)', 
                                     borderRadius: '6px', 
                                     marginBottom: '8px',
-                                    backgroundColor: index === 0 ? '#f6ffed' : '#fafafa'
+                                    backgroundColor: index === 0 ? 'rgba(52, 211, 153, 0.12)' : 'var(--overlay)'
                                   }}>
                                     <Row justify="space-between" align="middle">
                                       <Col span={8}>
-                                        <Text strong style={{ color: index === 0 ? '#52c41a' : '#666' }}>
+                                        <Text strong style={{ color: index === 0 ? '#34d399' : 'var(--text-soft)' }}>
                                           {day.date} {day.week && `周${day.week}`}
                                         </Text>
                                       </Col>

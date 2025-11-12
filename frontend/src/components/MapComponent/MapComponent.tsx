@@ -45,6 +45,10 @@ const MapComponent: React.FC<MapComponentProps> = ({
       url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
       attribution: '© OpenStreetMap contributors © CARTO'
     },
+    carto_dark: {
+      url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      attribution: '© OpenStreetMap contributors © CARTO'
+    },
     satellite: {
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       attribution: 'Tiles © Esri'
@@ -143,13 +147,14 @@ const MapComponent: React.FC<MapComponentProps> = ({
           </Space>
         </div>
 
-        <div style={{ 
-          width: '100%',
-          background: '#f5f5f5',
-          borderRadius: '8px',
-          padding: '16px',
-          position: 'relative'
-        }}>
+      <div style={{ 
+        width: '100%',
+        background: 'var(--overlay)',
+        borderRadius: '8px',
+        padding: '16px',
+        position: 'relative',
+        border: '1px solid var(--border-soft)'
+      }}>
           {/* 静态地图图片 */}
           {!imageError ? (
             <div style={{ 
@@ -158,8 +163,8 @@ const MapComponent: React.FC<MapComponentProps> = ({
               marginBottom: '20px',
               borderRadius: '6px',
               overflow: 'hidden',
-              background: '#fff',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+              background: 'transparent',
+              border: '1px solid var(--border-soft)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
@@ -185,9 +190,9 @@ const MapComponent: React.FC<MapComponentProps> = ({
               alignItems: 'center', 
               justifyContent: 'center',
               marginBottom: '20px',
-              border: '2px dashed #d9d9d9',
+              border: '2px dashed var(--border-soft)',
               borderRadius: '6px',
-              background: '#fafafa'
+              background: 'var(--overlay)'
             }}>
               <Space direction="vertical" style={{ textAlign: 'center' }}>
                  <PictureOutlined style={{ fontSize: '48px', color: '#d9d9d9' }} />
@@ -245,6 +250,7 @@ const MapComponent: React.FC<MapComponentProps> = ({
           >
             <Option value="openstreetmap">标准地图</Option>
             <Option value="cartodb">简洁地图</Option>
+            <Option value="carto_dark">深色地图</Option>
             <Option value="satellite">卫星地图</Option>
           </Select>
         </Space>
@@ -383,10 +389,10 @@ const MapComponent: React.FC<MapComponentProps> = ({
   return (
     <div style={{ 
       padding: '16px', 
-      background: '#fff', 
+      background: 'var(--overlay)', 
       borderRadius: '8px', 
-      boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-      border: '1px solid #f0f0f0',
+      boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
+      border: '1px solid var(--border-soft)',
       width: '100%'
     }}>
       <div style={{ 
@@ -395,9 +401,9 @@ const MapComponent: React.FC<MapComponentProps> = ({
         alignItems: 'center', 
         justifyContent: 'space-between',
         paddingBottom: '16px',
-        borderBottom: '1px solid #f0f0f0'
+        borderBottom: '1px solid var(--border-soft)'
       }}>
-        <Title level={4} style={{ margin: 0, color: '#1890ff' }}>
+        <Title level={4} style={{ margin: 0, color: 'var(--accent-b)' }}>
            <EnvironmentOutlined style={{ marginRight: '8px' }} />
            目的地地图
          </Title>

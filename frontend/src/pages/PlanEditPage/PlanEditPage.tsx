@@ -174,7 +174,7 @@ const PlanEditPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+    <div className="plan-edit-page" style={{ maxWidth: 900, margin: '0 auto' }}>
       <Card>
         <Space direction="vertical" style={{ width: '100%' }} size="large">
           <Title level={3} style={{ marginBottom: 0 }}>编辑旅行计划</Title>
@@ -185,7 +185,7 @@ const PlanEditPage: React.FC = () => {
           ) : (
             <Form form={form} layout="vertical">
               {/* 基本信息 */}
-              <Divider orientation="left">基本信息</Divider>
+              <Divider orientation="left" className="section-divider">基本信息</Divider>
               <Form.Item label="标题" name="title" rules={[{ required: true, message: '请输入标题' }]}> 
                 <Input placeholder="计划标题" />
               </Form.Item>
@@ -201,7 +201,7 @@ const PlanEditPage: React.FC = () => {
               </Form.Item>
   
               {/* 旅行参数 */}
-              <Divider orientation="left">旅行参数</Divider>
+              <Divider orientation="left" className="section-divider">旅行参数</Divider>
               <Space size="large" wrap>
                 <Form.Item label="预算(￥)" name="budget">
                   <InputNumber style={{ width: 200 }} min={0} step={100} placeholder="预算" />
@@ -215,7 +215,7 @@ const PlanEditPage: React.FC = () => {
               </Space>
   
               {/* 人群与饮食 */}
-              <Divider orientation="left">人群与饮食</Divider>
+              <Divider orientation="left" className="section-divider">人群与饮食</Divider>
               <Form.Item label="年龄组成" name="ageGroups">
                 <Select mode="multiple" options={AGE_GROUP_OPTIONS} placeholder="选择年龄组成"/>
               </Form.Item>
@@ -227,7 +227,7 @@ const PlanEditPage: React.FC = () => {
               </Form.Item>
   
               {/* 偏好与特殊要求 */}
-              <Divider orientation="left">偏好与特殊要求</Divider>
+              <Divider orientation="left" className="section-divider">偏好与特殊要求</Divider>
               <Form.Item label="旅行偏好" name="travelPreferences">
                 <Select
                   mode="multiple"
@@ -244,7 +244,7 @@ const PlanEditPage: React.FC = () => {
               </Form.Item>
 
               {/* 状态与描述 */}
-              <Divider orientation="left">状态与描述</Divider>
+              <Divider orientation="left" className="section-divider">状态与描述</Divider>
               <Form.Item label="状态" name="status"> 
                 <Select options={STATUS_OPTIONS} placeholder="选择状态" allowClear />
               </Form.Item>

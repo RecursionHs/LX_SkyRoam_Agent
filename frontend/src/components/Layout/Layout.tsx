@@ -125,21 +125,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
   };
 
-  const userMenu = (
-    <Menu
-      items={[
-        ...(user?.role === 'admin' ? [
-          { key: 'admin_users', label: '用户管理', icon: <UserOutlined />, onClick: () => navigate('/admin/users') },
-          { key: 'admin_history', label: '历史记录管理', icon: <HistoryOutlined />, onClick: () => navigate('/admin/history') },
-          { type: 'divider' as const },
-        ] : []),
-        { key: 'profile', label: '个人资料', onClick: () => setProfileVisible(true) },
-        { key: 'password', label: '修改密码', onClick: () => setPasswordVisible(true) },
-        { type: 'divider' as const },
-        { key: 'logout', label: '退出登录', onClick: handleLogout },
-      ]}
-    />
-  );
+  const userMenuItems = [
+    ...(user?.role === 'admin' ? [
+      { key: 'admin_users', label: '用户管理', icon: <UserOutlined />, onClick: () => navigate('/admin/users') },
+      { key: 'admin_history', label: '历史记录管理', icon: <HistoryOutlined />, onClick: () => navigate('/admin/history') },
+      { type: 'divider' as const },
+    ] : []),
+    { key: 'profile', label: '个人资料', onClick: () => setProfileVisible(true) },
+    { key: 'password', label: '修改密码', onClick: () => setPasswordVisible(true) },
+    { type: 'divider' as const },
+    { key: 'logout', label: '退出登录', onClick: handleLogout },
+  ];
 
   const mobileMenu = (
     <Menu
@@ -152,42 +148,36 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   );
 
   return (
-    <AntLayout style={{ minHeight: '100vh', background: '#0f0f1e' }}>
-      <Header 
-        style={{ 
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          padding: 0,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-        }}
-      >
+    <AntLayout style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+      <Header className="app-header" style={{ padding: 0 }}>
         <div className="header-inner">
           <div className="header-brand" style={{ display: 'flex', alignItems: 'center' }}>
-             <RocketOutlined 
-               style={{ fontSize: '24px', color: 'white', marginRight: 12 }} 
-             />
-             <Title level={3} style={{ color: 'white', margin: 0, fontWeight: 'bold' }}>
-               洛曦 云旅Agent
-             </Title>
-           </div>
+            <div className="brand-icon">
+              <RocketOutlined />
+            </div>
+            <Title level={3} className="brand-title gradient-text" style={{ margin: 0, fontWeight: '800' }}>
+              洛曦 云旅Agent
+            </Title>
+          </div>
 
            <Menu
              mode="horizontal"
              selectedKeys={[location.pathname]}
              items={menuItems}
              onClick={({ key }) => handleMenuClick(key)}
-             style={{ background: 'transparent', border: 'none', color: 'white' }}
+             style={{ background: 'transparent', border: 'none' }}
              theme="dark"
            />
 
           <div className="header-actions">
-            <Button type="primary" onClick={() => handleMenuClick('/plan')}>
+            <Button type="primary" className="btn-primary" onClick={() => handleMenuClick('/plan')}>
               创建计划
             </Button>
             {token ? (
-              <Dropdown overlay={userMenu} placement="bottomRight">
+              <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
                 <div style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
                   <Avatar icon={<UserOutlined />} src={undefined} />
-                  <Typography.Text style={{ color: 'white', marginLeft: 8 }}>
+                  <Typography.Text className="header-username" style={{ marginLeft: 8 }}>
                     {user?.username || '用户'}
                   </Typography.Text>
                 </div>
@@ -195,7 +185,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             ) : (
               <Avatar
                 icon={<UserOutlined />}
-                style={{ cursor: 'pointer', backgroundColor: 'rgba(255,255,255,0.2)' }}
+                style={{ cursor: 'pointer' }}
                 onClick={() => navigate('/login')}
               />
             )}
@@ -212,7 +202,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* 资料编辑弹窗 */}
       <Modal
-        title="编辑个人资料"
+        title={<span className="gradient-text">编辑个人资料</span>}
         open={profileVisible}
         onCancel={() => setProfileVisible(false)}
         onOk={handleSaveProfile}
@@ -230,7 +220,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* 修改密码弹窗 */}
       <Modal
-        title="修改密码"
+        title={<span className="gradient-text">修改密码</span>}
         open={passwordVisible}
         onCancel={() => setPasswordVisible(false)}
         onOk={handleChangePassword}
@@ -246,7 +236,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </Form>
       </Modal>
 
-      <Content style={{ padding: 0, minHeight: 'calc(100vh - 64px - 70px)', background: 'transparent' }}>
+      <Content className="app-content" style={{ minHeight: 'calc(100vh - 64px - 70px)', background: 'transparent' }}>
         {children}
       </Content>
 

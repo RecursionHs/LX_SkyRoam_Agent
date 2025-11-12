@@ -55,3 +55,54 @@
   gap: 8px;
   margin-right: 12px;
 }
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  backdrop-filter: blur(12px);
+  background: linear-gradient(90deg, rgba(15,15,30,0.85) 0%, rgba(76,29,149,0.25) 50%, rgba(15,15,30,0.85) 100%);
+  border-bottom: 1px solid rgba(167,139,250,0.2);
+}
+
+.brand-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+  box-shadow: 0 6px 20px rgba(167,139,250,0.25);
+}
+
+.brand-title {
+  font-weight: 800;
+}
+
+.app-header .ant-menu {
+  color: rgba(255,255,255,0.85);
+}
+.app-header .ant-menu-dark .ant-menu-item-selected {
+  background: transparent;
+}
+.app-header .ant-menu-dark .ant-menu-item:hover {
+  background: rgba(255,255,255,0.06);
+}
+.app-header .ant-menu-dark .ant-menu-item-selected .ant-menu-title-content {
+  color: #fff;
+}
+
+.header-username {
+  color: rgba(255,255,255,0.9);
+}
+.header-actions .ant-avatar {
+  background-color: rgba(255,255,255,0.2);
+}
+
+/* 内容区与导航的间距 */
+.app-content {
+  padding-top: 24px;
+}
