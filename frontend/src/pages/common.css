@@ -66,9 +66,21 @@ html, body, #root { height: 100%; min-height: 100vh; }
 /* 前缀/后缀输入框容器与内部输入统一暗色 */
 .ant-input-affix-wrapper > input.ant-input { background: transparent !important; color: #fff !important; }
 .ant-input-suffix, .ant-input-prefix { color: var(--text-soft) !important; }
+/* Select 多选模式下的选中项（小标签）提升对比度与可读性 */
+.ant-select-multiple .ant-select-selection-item {
+  background: rgba(255,255,255,0.14) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  border-radius: 12px !important;
+}
+.ant-select-multiple .ant-select-selection-item-content { color: var(--text) !important; }
+.ant-select-multiple .ant-select-selection-item-remove { color: var(--text-soft) !important; }
+.ant-select-multiple .ant-select-selection-item:hover {
+  background: rgba(255,255,255,0.20) !important;
+}
 /* 数字输入内部区域统一暗色 */
-.ant-input-number-input-wrap { background: var(--overlay) !important; background-color: var(--overlay) !important; }
-.ant-input-number .ant-input-number-input-wrap { background: var(--overlay) !important; }
+.ant-input-number-input-wrap { background: transparent !important; background-color: transparent !important; }
+.ant-input-number .ant-input-number-input-wrap { background: transparent !important; }
 .ant-input-number-input { background: transparent !important; background-color: transparent !important; color: #fff !important; }
 .ant-input-number .ant-input-number-input { background: transparent !important; color: #fff !important; }
 /* 聚焦态统一高亮 */
