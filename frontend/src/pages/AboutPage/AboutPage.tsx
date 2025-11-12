@@ -10,7 +10,6 @@ import {
   Tag
 } from 'antd';
 import { 
-  RocketOutlined,
   GlobalOutlined,
   SafetyOutlined,
   HeartOutlined,
@@ -61,13 +60,13 @@ const AboutPage: React.FC = () => {
   return (
     <div className="about-page" style={{ maxWidth: '1200px', margin: '0 auto' }}>
       {/* 公司介绍 */}
-      <Card style={{ marginBottom: '24px' }}>
+      <Card className="glass-card" style={{ marginBottom: '24px' }}>
         <Row gutter={[32, 32]} align="middle">
           <Col xs={24} md={12}>
             <Space direction="vertical" size="large">
               <div>
-                <Title level={1} style={{ margin: 0 }}>
-                  <RocketOutlined style={{ marginRight: '12px', color: '#1890ff' }} />
+                <Title level={1} style={{ margin: 0, display: 'flex', alignItems: 'center' }}>
+                  <img src="/images/logo.png" alt="Logo" style={{ width: '36px', height: '36px', marginRight: '12px' }} />
                   洛曦 云旅Agent
                 </Title>
                 <Title level={3} type="secondary" style={{ margin: '8px 0' }}>
@@ -117,7 +116,7 @@ const AboutPage: React.FC = () => {
       </Card>
 
       {/* 核心功能 */}
-      <Card title="核心功能" style={{ marginBottom: '24px' }}>
+      <Card title="核心功能" className="glass-card" style={{ marginBottom: '24px' }}>
         <Row gutter={[24, 24]}>
           {features.map((feature, index) => (
             <Col xs={24} sm={12} md={6} key={index}>
@@ -138,13 +137,24 @@ const AboutPage: React.FC = () => {
       </Card>
 
       {/* 技术栈 */}
-      <Card title="技术栈" style={{ marginBottom: '24px' }}>
+      <Card title="技术栈" className="glass-card" style={{ marginBottom: '24px' }}>
         <div style={{ textAlign: 'center' }}>
           <Space wrap size="large">
             {technologies.map((tech, index) => (
               <Tag 
                 key={index} 
-                color="blue" 
+                color={(() => {
+                  const t = tech.toLowerCase();
+                  if (t.includes('react')) return 'cyan';
+                  if (t.includes('ant')) return 'blue';
+                  if (t.includes('typescript')) return 'gold';
+                  if (t.includes('fastapi') || t.includes('python')) return 'green';
+                  if (t.includes('postgres')) return 'geekblue';
+                  if (t.includes('redis')) return 'red';
+                  if (t.includes('docker')) return 'volcano';
+                  if (t.includes('openai')) return 'purple';
+                  return 'blue';
+                })()} 
                 style={{ 
                   padding: '4px 12px', 
                   fontSize: '14px',
@@ -159,12 +169,13 @@ const AboutPage: React.FC = () => {
       </Card>
 
       {/* 团队介绍 */}
-      <Card title="我们的团队" style={{ marginBottom: '24px' }}>
+      <Card title="我们的团队" className="glass-card" style={{ marginBottom: '24px' }}>
         <Row gutter={[24, 24]}>
           {team.map((member, index) => (
             <Col xs={24} sm={12} md={6} key={index}>
               <Card 
                 size="small" 
+                className="glass-card"
                 style={{ textAlign: 'center' }}
                 bodyStyle={{ padding: '20px' }}
               >
@@ -193,7 +204,7 @@ const AboutPage: React.FC = () => {
       </Card>
 
       {/* 联系我们 */}
-      <Card title="联系我们">
+      <Card title="联系我们" className="glass-card">
         <Row gutter={[32, 32]}>
           <Col xs={24} md={12}>
             <Title level={4}>联系方式</Title>

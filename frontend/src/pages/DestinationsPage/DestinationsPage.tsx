@@ -66,6 +66,26 @@ const DestinationsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState<string>('');
   const [filterContinent, setFilterContinent] = useState<string>('全部');
+  const regionColor = (region?: string): string => {
+    const r = (region || '').toLowerCase();
+    if (!r) return 'default';
+    if (r.includes('华北') || r.includes('north')) return 'geekblue';
+    if (r.includes('华东') || r.includes('east')) return 'blue';
+    if (r.includes('华南') || r.includes('south')) return 'cyan';
+    if (r.includes('西南') || r.includes('southwest')) return 'green';
+    if (r.includes('西北') || r.includes('northwest')) return 'gold';
+    if (r.includes('华中') || r.includes('central')) return 'volcano';
+    if (r.includes('东北') || r.includes('northeast')) return 'purple';
+    return 'default';
+  };
+  const costLevelColor = (level?: string): string => {
+    const v = (level || '').toLowerCase();
+    if (!v) return 'default';
+    if (v.includes('低') || v.includes('low')) return 'green';
+    if (v.includes('高') || v.includes('high')) return 'volcano';
+    if (v.includes('中') || v.includes('medium')) return 'gold';
+    return 'orange';
+  };
 
   // 相关方案弹窗
   const [modalOpen, setModalOpen] = useState<boolean>(false);
@@ -218,7 +238,7 @@ const DestinationsPage: React.FC = () => {
   }, [plans, planQ, planMinScore, planStatus, planSource, planDateRange]);
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+    <div className="destinations-page" style={{ maxWidth: '1200px', margin: '0 auto' }}>
       <div style={{ textAlign: 'center', marginBottom: 24 }}>
         <Title level={2}><GlobalOutlined /> 探索热门目的地</Title>
         <Paragraph type="secondary">点击任一目的地，即刻查看该地的相关旅行方案，并在弹窗内进行二级检索</Paragraph>
@@ -307,6 +327,7 @@ const DestinationsPage: React.FC = () => {
               <Col xs={24} sm={12} md={8} lg={6} key={d.id}>
                 <Card
                   hoverable
+                  className="glass-card"
                   style={{ borderRadius: 12, overflow: 'hidden' }}
                   onClick={() => openPlansModal(d)}
                   cover={(
@@ -326,16 +347,16 @@ const DestinationsPage: React.FC = () => {
                 >
                   <Space direction="vertical" size={6} style={{ width: '100%' }}>
                     <Title level={4} style={{ margin: 0 }}>{d.name}</Title>
-                    <Text type="secondary">
+                    <Text>
                       <EnvironmentOutlined /> {d.country}{d.city ? ` · ${d.city}` : ''}
                     </Text>
                     <Space wrap>
-                      {d.region && <Tag>{d.region}</Tag>}
-                      {d.cost_level && <Tag color="orange">消费：{d.cost_level}</Tag>}
+                      {d.region && <Tag color={regionColor(d.region)}>{d.region}</Tag>}
+                      {d.cost_level && <Tag color={costLevelColor(d.cost_level)}>消费：{d.cost_level}</Tag>}
                       {typeof d.popularity_score === 'number' && <Tag color="blue">热度：{Math.round(d.popularity_score)}</Tag>}
                     </Space>
                     {d.best_time_to_visit && (
-                      <Text type="secondary"><CalendarOutlined /> 最佳旅行时间：{d.best_time_to_visit}</Text>
+                      <Text><CalendarOutlined /> 最佳旅行时间：{d.best_time_to_visit}</Text>
                     )}
                   </Space>
                 </Card>
@@ -419,15 +440,15 @@ const DestinationsPage: React.FC = () => {
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               <Empty description="暂无相关方案" />
               {activeDest && (
-                <Card>
+                <Card className="glass-card">
                   <Space direction="vertical" size={6} style={{ width: '100%' }}>
                     <Title level={5} style={{ margin: 0 }}>目的地概览</Title>
                     {activeDest.description && (
-                      <Paragraph type="secondary">{activeDest.description}</Paragraph>
+                      <Paragraph>{activeDest.description}</Paragraph>
                     )}
                     {Array.isArray(activeDest.highlights) && activeDest.highlights.length > 0 && (
                       <>
-                        <Text type="secondary">热门景点：</Text>
+                        <Text>热门景点：</Text>
                         <Space wrap>
                           {activeDest.highlights.map((h) => (
                             <Tag key={h}>{h}</Tag>
@@ -450,16 +471,26 @@ const DestinationsPage: React.FC = () => {
               size="small"
               renderItem={(p) => (
                 <List.Item>
-                  <Card hoverable style={{ width: '100%' }} bodyStyle={{ padding: 12 }}>
+                  <Card hoverable className="glass-card dest-plan-card" style={{ width: '100%' }} bodyStyle={{ padding: 12 }}>
                     <Row gutter={12} align="middle">
                       <Col flex="auto">
                         <Space direction="vertical" size={4}>
                           <Text strong ellipsis style={{ fontSize: 16 }}>{p.title}</Text>
-                          <Text type="secondary" ellipsis>
+                          <Text ellipsis>
                             <EnvironmentOutlined /> {p.destination} · {dayjs(p.start_date).format('YYYY-MM-DD')} ~ {dayjs(p.end_date).format('YYYY-MM-DD')}
                           </Text>
                           <Space wrap>
-                              <Tag color="blue">状态：{({ draft: '草稿', generating: '生成中', completed: '已完成', failed: '失败', archived: '已归档' } as Record<string, string>)[p.status] || p.status}</Tag>
+                              {(() => {
+                                const statusMap = {
+                                  draft: { color: 'default', text: '草稿' },
+                                  generating: { color: 'processing', text: '生成中' },
+                                  completed: { color: 'success', text: '已完成' },
+                                  failed: { color: 'error', text: '失败' },
+                                  archived: { color: 'default', text: '已归档' },
+                                } as Record<string, { color: string; text: string }>;
+                                const cfg = statusMap[p.status] || { color: 'default', text: p.status };
+                                return <Tag color={cfg.color}>状态：{cfg.text}</Tag>;
+                              })()}
                               {typeof p.budget === 'number' && <Tag color="orange"><DollarOutlined /> 预算：¥{p.budget}</Tag>}
                               {typeof p.score === 'number' && <Tag color="gold">评分：{p.score}</Tag>}
                               {p.is_public && <Tag color="cyan">公开</Tag>}

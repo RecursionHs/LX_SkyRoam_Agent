@@ -31,10 +31,15 @@ const RegisterPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: 520, margin: '40px auto' }}>
-      <Card>
-        <Title level={3}>注册</Title>
-        <Paragraph>仅需用户名和密码，邮箱可选</Paragraph>
+    <div className="register-page" style={{ minHeight: 'calc(100vh - 64px - 70px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+      <Card className="glass-card" style={{ width: 560, borderRadius: 24 }} bodyStyle={{ padding: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+          <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(102,126,234,0.35)' }}>
+            <img src="/images/logo.png" alt="Logo" style={{ width: 36, height: 36 }} />
+          </div>
+          <Title level={2} className="gradient-text" style={{ margin: 0, marginLeft: 14 }}>洛曦 云旅Agent</Title>
+        </div>
+        <Paragraph style={{ textAlign: 'center' }}>仅需用户名和密码，邮箱可选</Paragraph>
         <Form layout="vertical" onFinish={onFinish}>
           <Form.Item label="用户名" name="username" rules={[{ required: true, message: '请输入用户名' }]}> 
             <Input placeholder="请输入用户名" />
@@ -45,15 +50,17 @@ const RegisterPage: React.FC = () => {
           <Form.Item label="昵称" name="full_name">
             <Input placeholder="可选，输入昵称" />
           </Form.Item>
-          <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }]}>
+          <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }]}> 
             <Input.Password placeholder="请输入密码" />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" htmlType="submit" loading={loading} block>
+            <Button type="primary" htmlType="submit" loading={loading} block className="btn-primary">
               注册
             </Button>
           </Form.Item>
-          <Button type="link" onClick={() => navigate('/login')}>已有账号？去登录</Button>
+          <div style={{ textAlign: 'center' }}>
+            <Button type="link" onClick={() => navigate('/login')}>已有账号？去登录</Button>
+          </div>
         </Form>
       </Card>
     </div>

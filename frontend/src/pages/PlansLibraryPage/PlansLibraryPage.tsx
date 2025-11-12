@@ -178,7 +178,7 @@ const PlansLibraryPage: React.FC = () => {
 
   const renderCard = (plan: TravelPlan, tab: TabKey) => (
     <Card
-      className="travel-card"
+      className="travel-card glass-card"
       hoverable
       actions={[
         <Button type="text" icon={<EyeOutlined />} onClick={() => navigate(`/plan/${plan.id}`)}>查看</Button>,

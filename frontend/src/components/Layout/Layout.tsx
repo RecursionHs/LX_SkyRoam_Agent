@@ -2,11 +2,9 @@ import React, { useState } from 'react';
 import { Layout as AntLayout, Menu, Button, Drawer, Typography, Avatar, Dropdown, Modal, Form, Input, message } from 'antd';
 import { 
   HomeOutlined, 
-  CalendarOutlined, 
   HistoryOutlined, 
   InfoCircleOutlined,
   MenuOutlined,
-  RocketOutlined,
   UserOutlined,
   EnvironmentOutlined
 } from '@ant-design/icons';
@@ -153,7 +151,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <div className="header-inner">
           <div className="header-brand" style={{ display: 'flex', alignItems: 'center' }}>
             <div className="brand-icon">
-              <RocketOutlined />
+              <img src="/images/logo.png" alt="Logo" style={{ width: 24, height: 24 }} />
             </div>
             <Title level={3} className="brand-title gradient-text" style={{ margin: 0, fontWeight: '800' }}>
               洛曦 云旅Agent

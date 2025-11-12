@@ -94,6 +94,15 @@ body, .ant-layout, .ant-layout-content { background: var(--bg) !important; }
 /* 卡片、表格、弹窗等容器 */
 .ant-card { background: var(--overlay) !important; border-color: var(--border) !important; color: var(--text) !important; }
 .ant-card-head { border-bottom-color: var(--border-soft) !important; }
+.destinations-page .ant-card { background: var(--overlay) !important; }
+.destinations-page .ant-card .ant-typography, .destinations-page .ant-card p { color: var(--text) !important; }
+.destinations-page .ant-card .ant-card-body { background: transparent !important; }
+.destinations-page .ant-tag:not(.ant-tag-has-color):not([class*="ant-tag-"]) { color: var(--text) !important; border-color: var(--border) !important; background: transparent !important; }
+.dest-plan-card { background: var(--overlay) !important; border-color: var(--border) !important; }
+.dest-plan-card .ant-card-body { background: transparent !important; }
+.dest-plan-card .ant-typography, .dest-plan-card p { color: var(--text) !important; }
+.dest-plan-card .ant-tag:not(.ant-tag-has-color):not([class*="ant-tag-"]) { color: var(--text) !important; border-color: var(--border) !important; background: transparent !important; }
+.dest-plan-card:hover { border-color: rgba(167,139,250,0.5) !important; box-shadow: 0 0 40px rgba(167,139,250,0.3), 0 20px 60px rgba(0,0,0,0.4) !important; transform: translateY(-4px) !important; }
 .ant-modal-content, .ant-drawer-content, .ant-popover-inner, .ant-dropdown-menu, .ant-tooltip-inner {
   background: var(--bg-soft) !important; color: var(--text) !important; border: 1px solid var(--border-soft) !important;
 }
@@ -209,6 +218,43 @@ a:hover { color: #bfdbfe; }
   background: transparent !important;
 }
 
+.plan-detail-page .weather-card .forecast-item { padding: 10px !important; border: 1px solid var(--border-soft) !important; border-radius: 12px !important; margin-bottom: 10px !important; background: var(--overlay) !important; transition: all 0.3s ease !important; }
+.plan-detail-page .weather-card .forecast-item.highlight { border-color: rgba(52,211,153,0.6) !important; box-shadow: 0 0 20px rgba(52,211,153,0.25) !important; transform: translateY(-2px) !important; }
+.plan-detail-page .weather-card .forecast-item .ant-typography { color: var(--text) !important; }
+.plan-detail-page .weather-sunny { border-color: rgba(250,173,20,0.5) !important; background: linear-gradient(135deg, rgba(250,173,20,0.12), rgba(255,255,255,0.06)) !important; animation: glowSunny 3s ease-in-out infinite alternate; }
+.plan-detail-page .weather-cloudy { border-color: rgba(96,125,139,0.4) !important; background: linear-gradient(135deg, rgba(96,125,139,0.12), rgba(255,255,255,0.06)) !important; animation: glowCloudy 4s ease-in-out infinite alternate; }
+.plan-detail-page .weather-rainy { border-color: rgba(24,144,255,0.5) !important; background: linear-gradient(135deg, rgba(24,144,255,0.12), rgba(255,255,255,0.06)) !important; animation: glowRainy 3s ease-in-out infinite alternate; }
+.plan-detail-page .weather-thunder { border-color: rgba(250,84,12,0.5) !important; background: linear-gradient(135deg, rgba(250,84,12,0.12), rgba(255,255,255,0.06)) !important; animation: glowThunder 2.5s ease-in-out infinite alternate; }
+.plan-detail-page .weather-snow { border-color: rgba(135,208,255,0.6) !important; background: linear-gradient(135deg, rgba(135,208,255,0.12), rgba(255,255,255,0.06)) !important; animation: glowSnow 4s ease-in-out infinite alternate; }
+@keyframes glowSunny { from { box-shadow: 0 0 0 rgba(250,173,20,0); } to { box-shadow: 0 0 24px rgba(250,173,20,0.35); } }
+@keyframes glowCloudy { from { box-shadow: 0 0 0 rgba(96,125,139,0); } to { box-shadow: 0 0 20px rgba(96,125,139,0.3); } }
+@keyframes glowRainy { from { box-shadow: 0 0 0 rgba(24,144,255,0); } to { box-shadow: 0 0 24px rgba(24,144,255,0.35); } }
+@keyframes glowThunder { from { box-shadow: 0 0 0 rgba(250,84,12,0); } to { box-shadow: 0 0 24px rgba(250,84,12,0.4); } }
+@keyframes glowSnow { from { box-shadow: 0 0 0 rgba(135,208,255,0); } to { box-shadow: 0 0 24px rgba(135,208,255,0.35); } }
+
+.plans-library-page .glass-card .ant-card-body {
+  background: transparent !important;
+}
+
+.about-page .glass-card .ant-card-body {
+  background: transparent !important;
+}
+
+.login-page .glass-card .ant-card-body {
+  background: transparent !important;
+}
+
+.login-page .glass-card:hover {
+  transform: none !important;
+}
+
+.register-page .glass-card .ant-card-body {
+  background: transparent !important;
+}
+.register-page .glass-card:hover {
+  transform: none !important;
+}
+
 /* 行程时间线暗色适配：透明点与柔和线条 */
 .plan-detail-page .ant-timeline .ant-timeline-item-head,
 .plan-detail-page .ant-timeline .ant-timeline-item-head-custom {
@@ -230,7 +276,7 @@ a:hover { color: #bfdbfe; }
   background: transparent !important;
 }
 
-.plan-detail-page .ant-tag:not(.ant-tag-has-color) {
+.plan-detail-page .ant-tag:not(.ant-tag-has-color):not([class*="ant-tag-"]) {
   background: rgba(167, 139, 250, 0.12) !important;
   border: 1px solid rgba(167, 139, 250, 0.3) !important;
   color: var(--accent-a) !important;

@@ -37,6 +37,7 @@ import {
   TagOutlined,
   HomeOutlined
 } from '@ant-design/icons';
+import { Badge } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
 import { authFetch, getToken } from '../../utils/auth';
@@ -1124,6 +1125,16 @@ const PlanDetailPage: React.FC = () => {
   }
 
   const currentPlan = planDetail.generated_plans?.[selectedPlanIndex];
+  const getWeatherClass = (desc: string) => {
+    const t = String(desc || '').toLowerCase();
+    if (!t) return 'weather-default';
+    if (t.includes('雷')) return 'weather-thunder';
+    if (t.includes('雨')) return 'weather-rainy';
+    if (t.includes('雪')) return 'weather-snow';
+    if (t.includes('晴') || t.includes('sun')) return 'weather-sunny';
+    if (t.includes('云') || t.includes('阴') || t.includes('cloud')) return 'weather-cloudy';
+    return 'weather-default';
+  };
 
   return (
     <div className="plan-detail-page" style={{ maxWidth: '1200px', margin: '0 auto' }}>
@@ -1136,13 +1147,13 @@ const PlanDetailPage: React.FC = () => {
                 {planDetail.title}
               </Title>
               <Space>
-                <Tag icon={<EnvironmentOutlined />}>
+                <Tag color="blue" icon={<EnvironmentOutlined />}> 
                   {planDetail.destination}
                 </Tag>
-                <Tag icon={<CalendarOutlined />}>
+                <Tag color="green" icon={<CalendarOutlined />}> 
                   {planDetail.duration_days} 天
                 </Tag>
-                <Tag icon={<StarOutlined />}>
+                <Tag color="gold" icon={<StarOutlined />}> 
                   评分: {ratingSummary ? ratingSummary.average.toFixed(1) : (planDetail.score?.toFixed(1) || 'N/A')}
                 </Tag>
                 {typeof planDetail.is_public !== 'undefined' && (
@@ -1209,26 +1220,43 @@ const PlanDetailPage: React.FC = () => {
           <Row gutter={[16, 16]}>
             {planDetail.generated_plans.map((plan, index) => (
               <Col xs={24} sm={12} md={8} key={index}>
-                <Card
-                  size="small"
-                  hoverable
-                  onClick={() => handleSelectPlan(index)}
-                  style={{
-                    border: selectedPlanIndex === index ? '2px solid #1890ff' : '1px solid #d9d9d9',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                    <Text strong>{plan.type}</Text>
-                    <Text type="secondary">{plan.title}</Text>
-                    <Space>
-                      <Text>评分: {plan.score?.toFixed(1)}</Text>
-                      <Text type="secondary">
-                        预算: ¥{plan.total_cost?.total?.toLocaleString()}
-                      </Text>
+                {selectedPlanIndex === index ? (
+                  <Badge.Ribbon text="已选" color="cyan">
+                    <Card
+                      size="small"
+                      hoverable
+                      className="glass-card"
+                      onClick={() => handleSelectPlan(index)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                        {plan.type && <Tag color={(() => { const t = String(plan.type).toLowerCase(); if (t.includes('经济')||t.includes('budget')) return 'green'; if (t.includes('豪华')||t.includes('luxury')) return 'purple'; if (t.includes('轻奢')||t.includes('premium')) return 'volcano'; return 'geekblue'; })()}>{plan.type}</Tag>}
+                        <Text type="secondary">{plan.title}</Text>
+                        <Space>
+                          {typeof plan.score === 'number' && <Tag color="gold">评分: {plan.score.toFixed(1)}</Tag>}
+                          {plan.total_cost?.total && <Tag color="orange">预算: ¥{plan.total_cost.total.toLocaleString()}</Tag>}
+                        </Space>
+                      </Space>
+                    </Card>
+                  </Badge.Ribbon>
+                ) : (
+                  <Card
+                    size="small"
+                    hoverable
+                    className="glass-card"
+                    onClick={() => handleSelectPlan(index)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                      {plan.type && <Tag color={(() => { const t = String(plan.type).toLowerCase(); if (t.includes('经济')||t.includes('budget')) return 'green'; if (t.includes('豪华')||t.includes('luxury')) return 'purple'; if (t.includes('轻奢')||t.includes('premium')) return 'volcano'; return 'geekblue'; })()}>{plan.type}</Tag>}
+                      <Text type="secondary">{plan.title}</Text>
+                      <Space>
+                        {typeof plan.score === 'number' && <Tag color="gold">评分: {plan.score.toFixed(1)}</Tag>}
+                        {plan.total_cost?.total && <Tag color="orange">预算: ¥{plan.total_cost.total.toLocaleString()}</Tag>}
+                      </Space>
                     </Space>
-                  </Space>
-                </Card>
+                  </Card>
+                )}
               </Col>
             ))}
           </Row>
@@ -1698,7 +1726,7 @@ const PlanDetailPage: React.FC = () => {
 
                   {/* 天气信息 */}
                   {currentPlan.weather_info && (
-                    <Card title={
+                    <Card className="glass-card weather-card" title={
                       <Space>
                         <CloudOutlined />
                         <span>天气信息</span>
@@ -1716,21 +1744,15 @@ const PlanDetailPage: React.FC = () => {
                                 </Text>
                               </div>
                             )}
-                            
+
                             {/* 多天天气预报 */}
                             {currentPlan.weather_info.raw_data.forecast && currentPlan.weather_info.raw_data.forecast.length > 0 && (
                               <div style={{ marginBottom: '12px' }}>
                                 {currentPlan.weather_info.raw_data.forecast.map((day: any, index: number) => (
-                                  <div key={index} style={{ 
-                                    padding: '8px', 
-                                    border: '1px solid var(--border-soft)', 
-                                    borderRadius: '6px', 
-                                    marginBottom: '8px',
-                                    backgroundColor: index === 0 ? 'rgba(52, 211, 153, 0.12)' : 'var(--overlay)'
-                                  }}>
+                                  <div key={index} className={`forecast-item ${getWeatherClass(day.dayweather || '')} ${index === 0 ? 'highlight' : ''}`}>
                                     <Row justify="space-between" align="middle">
                                       <Col span={8}>
-                                        <Text strong style={{ color: index === 0 ? '#34d399' : 'var(--text-soft)' }}>
+                                        <Text strong>
                                           {day.date} {day.week && `周${day.week}`}
                                         </Text>
                                       </Col>
@@ -1747,13 +1769,13 @@ const PlanDetailPage: React.FC = () => {
                                         </div>
                                       </Col>
                                       <Col span={8} style={{ textAlign: 'right' }}>
-                                        <Text strong style={{ color: '#ff4d4f' }}>
+                                        <Text strong>
                                           {day.daytemp}°
                                         </Text>
-                                        <Text style={{ color: '#1890ff', margin: '0 4px' }}>
+                                        <Text style={{ margin: '0 4px' }}>
                                           /
                                         </Text>
-                                        <Text style={{ color: '#1890ff' }}>
+                                        <Text>
                                           {day.nighttemp}°
                                         </Text>
                                       </Col>
@@ -1769,10 +1791,10 @@ const PlanDetailPage: React.FC = () => {
                                 ))}
                               </div>
                             )}
-                            
+
                             {/* 兼容旧格式的天气数据 */}
                             {!currentPlan.weather_info.raw_data.forecast && (
-                              <div style={{ marginTop: '8px' }}>
+                              <div className={`forecast-item ${getWeatherClass(currentPlan.weather_info.raw_data.weather || '')}`} style={{ marginTop: '8px' }}>
                                 {currentPlan.weather_info.raw_data.temperature && (
                                   <Row justify="space-between">
                                     <Text>温度</Text>
