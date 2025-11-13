@@ -216,12 +216,12 @@ const TravelPlanPage: React.FC = () => {
     if (!res.ok) return [] as { value: string; label: React.ReactNode }[];
     const data = await res.json();
     const options = Array.isArray(data?.options) ? data.options : [];
-    return options.map((item: any) => {
+    return options.map((item: any, idx: number) => {
       const main = item?.value || '';
       const sub = item?.district || '';
       return {
         value: item?.value || main,
-        key: `${item?.value || ''}-${item?.adcode || ''}-${item?.location || ''}`,
+        key: `${item?.value || ''}-${item?.adcode || ''}-${item?.location || ''}-${idx}`,
         label: (
           <Space direction="vertical" size={0} style={{ lineHeight: 1.2 }}>
             <span style={{ fontWeight: 500 }}>{main}</span>
