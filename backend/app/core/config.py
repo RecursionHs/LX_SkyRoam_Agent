@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     MAP_TIPS_RATE_LIMIT_MAX: int = int(os.getenv("MAP_TIPS_RATE_LIMIT_MAX", "10"))
     MAP_TIPS_RATE_LIMIT_WINDOW: int = int(os.getenv("MAP_TIPS_RATE_LIMIT_WINDOW", "10"))
     MAP_TIPS_CACHE_TTL: int = int(os.getenv("MAP_TIPS_CACHE_TTL", "60"))
+    MAP_CACHE_ENABLED: bool = os.getenv("MAP_CACHE_ENABLED", "true").lower() == "true"  # 全局缓存开关
 
     # 方案状态SSE流配置
     PLAN_STATUS_STREAM_INTERVAL: int = int(os.getenv("PLAN_STATUS_STREAM_INTERVAL", "2"))

@@ -89,6 +89,8 @@ def cache_key(prefix: str, *args, **kwargs):
 async def get_cache(key: str):
     """获取缓存"""
     try:
+        if not settings.MAP_CACHE_ENABLED:
+            return None
         client = await get_redis()
         value = await client.get(key)
         if value:
@@ -103,6 +105,8 @@ async def get_cache(key: str):
 async def set_cache(key: str, value, ttl: int = None):
     """设置缓存"""
     try:
+        if not settings.MAP_CACHE_ENABLED:
+            return False
         client = await get_redis()
         import json
         json_value = json.dumps(value, ensure_ascii=False)

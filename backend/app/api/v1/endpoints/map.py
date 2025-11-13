@@ -143,6 +143,7 @@ async def map_health():
         "status": "ok",
         "map_provider": settings.MAP_PROVIDER,
         "input_tips_enabled": bool(settings.MAP_INPUT_TIPS_ENABLED),
+        "cache_enabled": bool(settings.MAP_CACHE_ENABLED),
         "providers": {
             "amap_configured": bool(AMAP_API_KEY),
             "baidu_configured": bool(BAIDU_API_KEY),
