@@ -22,7 +22,6 @@ import {
   Tag,
   Tabs,
   List,
-  Image,
   Grid,
   Timeline
 } from 'antd';
@@ -708,7 +707,7 @@ const TravelPlanPage: React.FC = () => {
                           style={{ borderRadius: 16 }}
                           cover={
                             cover ? (
-                              <Image src={cover} alt={getTitle(h)} height={160} style={{ objectFit: 'cover' }} />
+                              <img src={cover} alt={getTitle(h)} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
                             ) : undefined
                           }
                         >
@@ -745,7 +744,7 @@ const TravelPlanPage: React.FC = () => {
                           cover={
                             cover ? (
                               <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
-                                <Image src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} />
+                                <img src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
                                 {a?.rating && (
                                   <Tag color="gold" style={{ position: 'absolute', top: 8, right: 8 }}>
                                     <StarFilled /> {a.rating}
@@ -793,7 +792,7 @@ const TravelPlanPage: React.FC = () => {
                           cover={
                             cover ? (
                               <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
-                                <Image src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} />
+                                <img src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
                                 {r?.rating && (
                                   <Tag color="gold" style={{ position: 'absolute', top: 8, right: 8 }}>
                                     <StarFilled /> {r.rating}
@@ -890,7 +889,7 @@ const TravelPlanPage: React.FC = () => {
                           cover={
                             cover ? (
                               <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
-                                <Image src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} />
+                                <img src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
                                 {typeof likes === 'number' && (
                                   <Tag color="magenta" style={{ position: 'absolute', top: 8, right: 8 }}>
                                     <HeartOutlined /> {likes}

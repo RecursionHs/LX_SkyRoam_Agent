@@ -2,12 +2,13 @@
 地图API端点
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 import httpx
 from typing import Optional
 from loguru import logger
 from app.core.config import settings
+from app.core.redis import get_redis, get_cache, set_cache
 
 router = APIRouter()
 
@@ -134,6 +135,7 @@ async def map_health():
 
 @router.get("/tips")
 async def input_tips(
+    request: Request,
     q: str = Query(..., min_length=1, description="输入关键字"),
     city: Optional[str] = Query(None, description="指定城市，提高准确性"),
     datatype: str = Query("all", description="返回数据类型: all|poi|bus|busline"),
@@ -146,6 +148,29 @@ async def input_tips(
     if not settings.MAP_INPUT_TIPS_ENABLED:
         logger.info("输入提示功能已关闭，返回空结果")
         return {"options": []}
+
+    # 简单的接口级限流（独立于全局中间件）
+    try:
+        redis_client = await get_redis()
+        ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+        window = 10
+        max_requests = 10
+        import time
+        bucket = int(time.time() // window)
+        rl_key = f"rate:map_tips:{ip}:{bucket}"
+        count = await redis_client.incr(rl_key)
+        if count == 1:
+            await redis_client.expire(rl_key, window)
+        if count > max_requests:
+            raise HTTPException(status_code=429, detail="Too Many Requests: map tips")
+    except Exception as e:
+        logger.error(f"map_tips 限流错误: {e}")
+
+    # 短期缓存
+    cache_key = f"cache:map_tips:{provider or settings.MAP_PROVIDER}:{city or ''}:{datatype}:{'1' if citylimit else '0'}:{q.strip()}"
+    cached = await get_cache(cache_key)
+    if cached:
+        return cached
     source = (provider or settings.MAP_PROVIDER or 'amap').lower()
 
     try:
@@ -187,7 +212,9 @@ async def input_tips(
                         "location": location
                     })
 
-                return {"options": options}
+                result = {"options": options}
+                await set_cache(cache_key, result, ttl=60)
+                return result
 
         elif source == 'osm':
             # OpenStreetMap Nominatim 输入提示（搜索）
@@ -235,7 +262,9 @@ async def input_tips(
                         "location": location
                     })
 
-                return {"options": options}
+                result = {"options": options}
+                await set_cache(cache_key, result, ttl=60)
+                return result
 
         else:
             if source == 'baidu':
@@ -282,7 +311,9 @@ async def input_tips(
                             "location": location
                         })
 
-                    return {"options": options}
+                    result = {"options": options}
+                    await set_cache(cache_key, result, ttl=60)
+                    return result
             raise HTTPException(status_code=400, detail="不支持的输入提示提供商")
     except httpx.HTTPError as e:
         logger.error(f"请求输入提示失败: {str(e)}")
