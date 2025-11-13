@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     
     # 地图服务提供商配置
     MAP_PROVIDER: str = os.getenv("MAP_PROVIDER", "amap")  # 地图服务提供商: "baidu" 或 "amap"
+    # 地点输入框提示配置
+    MAP_INPUT_TIPS_ENABLED: bool = os.getenv("MAP_INPUT_TIPS_ENABLED", "true").lower() == "true"  # 输入提示开关
     
     # 餐厅数据源配置
     RESTAURANT_DATA_SOURCE: str = os.getenv("RESTAURANT_DATA_SOURCE", "amap")  # 餐厅数据源: "baidu" 或 "amap" 或 "both"
