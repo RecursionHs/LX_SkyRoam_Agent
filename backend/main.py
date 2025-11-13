@@ -10,22 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
-from dotenv import load_dotenv
 from fastapi.staticfiles import StaticFiles
-
-# 加载环境变量
-env_path = Path(__file__).parent / ".env"
-if env_path.exists():
-    load_dotenv(env_path)
-    print(f"✅ 已加载环境变量文件: {env_path}")
-else:
-    print(f"⚠️ 环境变量文件不存在: {env_path}")
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
-
-# 初始化日志系统
-logger = setup_logging()
 from app.core.database import init_db
 from app.api.v1.api import api_router
 from app.core.redis import init_redis
@@ -37,6 +25,7 @@ from app.core.rate_limit import RateLimitMiddleware
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时初始化
+    logger = setup_logging()
     logger.info("🚀 启动 LX SkyRoam Agent...")
     
     # 初始化数据库

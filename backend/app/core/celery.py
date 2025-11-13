@@ -5,6 +5,7 @@ Celery配置
 from celery import Celery
 from app.core.config import settings
 from app.core.logging_config import setup_logging
+import sys
 import platform
 
 # 创建Celery应用
@@ -34,8 +35,9 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
 )
 
-# 初始化日志（确保在Celery进程中使用统一日志级别）
-setup_logging()
+# 初始化日志（仅在 Celery 进程中初始化，避免被Web进程导入时重复输出）
+if any("celery" in str(arg).lower() for arg in sys.argv):
+    setup_logging()
 
 # Worker并发与池类型（支持通过环境变量覆盖）
 if settings.CELERY_WORKER_POOL:
