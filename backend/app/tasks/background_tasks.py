@@ -6,6 +6,7 @@ from celery import current_task
 from app.core.celery import celery_app
 from app.services.background_tasks import task_manager
 from loguru import logger
+from app.core.async_loop import run_coro
 
 
 @celery_app.task
@@ -65,24 +66,30 @@ def health_check_task():
     """健康检查任务"""
     try:
         logger.info("开始执行健康检查任务")
-        
-        # 检查数据库连接
-        from app.core.database import async_engine
-        async with async_engine.begin() as conn:
-            await conn.execute("SELECT 1")
-        
-        # 检查Redis连接
-        from app.core.redis import get_redis
-        redis_client = await get_redis()
-        await redis_client.ping()
-        
-        return {
-            "status": "success",
-            "checks": {
-                "database": "healthy",
-                "redis": "healthy"
+
+        from sqlalchemy import text
+
+        async def run_checks():
+            # 检查数据库连接（异步）
+            from app.core.database import get_async_engine
+            engine = get_async_engine()
+            async with engine.begin() as conn:
+                await conn.execute(text("SELECT 1"))
+
+            # 检查Redis连接（异步）
+            from app.core.redis import get_redis
+            redis_client = await get_redis()
+            await redis_client.ping()
+
+            return {
+                "status": "success",
+                "checks": {
+                    "database": "healthy",
+                    "redis": "healthy"
+                }
             }
-        }
+
+        return run_coro(run_checks())
         
     except Exception as e:
         logger.error(f"健康检查任务失败: {e}")

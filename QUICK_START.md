@@ -66,6 +66,10 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 
+# 启动Celery Worker（新终端）
+cd backend
+celery -A app.core.celery worker --loglevel=info
+
 # 启动前端（新终端）
 cd frontend
 npm install

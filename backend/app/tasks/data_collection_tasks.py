@@ -6,6 +6,7 @@ from celery import current_task
 from app.core.celery import celery_app
 from app.services.data_collector import DataCollector
 from loguru import logger
+from app.core.async_loop import run_coro
 
 
 @celery_app.task
@@ -62,8 +63,7 @@ def collect_destination_data_task(
                 }
             }
         
-        import asyncio
-        return asyncio.run(run_collection())
+        return run_coro(run_collection())
         
     except Exception as e:
         logger.error(f"收集目的地数据失败: {e}")

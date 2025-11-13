@@ -5,6 +5,7 @@
 
 import os
 import sys
+import multiprocessing
 from pathlib import Path
 from loguru import logger
 from app.core.config import settings
@@ -89,10 +90,11 @@ def setup_logging():
         )
     
     # 记录日志系统启动信息
-    logger.info("🚀 日志系统已启动")
-    logger.info(f"📁 日志目录: {log_dir.absolute()}")
-    logger.info(f"📊 日志级别: {settings.LOG_LEVEL}")
-    logger.info(f"💾 最大存储: 50MB (应用日志) + 15MB (错误日志) + 30MB (访问日志)")
+    if multiprocessing.current_process().name == "MainProcess":
+        logger.info("🚀 日志系统已启动")
+        logger.info(f"📁 日志目录: {log_dir.absolute()}")
+        logger.info(f"📊 日志级别: {settings.LOG_LEVEL}")
+        logger.info(f"💾 最大存储: 50MB (应用日志) + 15MB (错误日志) + 30MB (访问日志)")
     
     return logger
 

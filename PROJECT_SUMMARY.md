@@ -98,6 +98,22 @@ graph TD
 - **Celery Beat**: 定时任务调度
 - **Flower**: Celery监控界面
 
+### Windows 下 Celery 并发与限制
+- Windows 平台不支持软超时与部分信号，默认多进程池易出现兼容性异常（如 `billiard` 解包错误）
+- 默认建议使用 `solo` 池（单进程），稳定但并发为 1；需要并发可用以下方式：
+- 线程池并发：启动参数 `--pool=threads --concurrency=N`，适合 I/O 密集型任务（需确保线程安全）
+- 横向扩容：启动多个 Worker 实例，每个 `--pool=solo`，以总进程数获得并发
+- 最佳实践：在 Linux/WSL2/Docker Linux 环境使用默认多进程并发（prefork），稳定性更好
+
+### 环境变量示例（Celery/Redis）
+- `REDIS_URL=redis://<host>:6379/0`
+- `CELERY_BROKER_URL=redis://<host>:6379/1`
+- `CELERY_RESULT_BACKEND=redis://<host>:6379/2`
+- `CELERY_WORKER_POOL=solo`（Windows 推荐：`solo`；或尝试 `threads`）
+- `CELERY_WORKER_CONCURRENCY=1`（Windows/solo 为 1；threads 可设置 >=2）
+
+> 说明：代码中已支持通过上述环境变量覆盖默认池类型与并发；未设置时，Windows 默认使用 `solo`，*nix 默认并发来自 `MAX_CONCURRENT_TASKS`。
+
 ### 环境配置
 - **开发环境**: 本地Docker Compose
 - **生产环境**: Kubernetes集群部署

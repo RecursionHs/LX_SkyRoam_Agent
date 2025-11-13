@@ -6,17 +6,35 @@ from sqlalchemy import create_engine, MetaData
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+import asyncio
 from loguru import logger
 
 from app.core.config import settings
 
-# 创建异步数据库引擎
-async_engine = create_async_engine(
-    settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://"),
-    echo=settings.DATABASE_ECHO,
-    pool_pre_ping=True,
-    pool_recycle=300
-)
+# 每个事件循环维护独立的异步引擎与Session工厂，避免跨循环复用
+_engines_by_loop = {}
+_sessionmaker_by_loop = {}
+
+def _current_loop_id():
+    try:
+        return id(asyncio.get_running_loop())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return id(loop)
+
+def _get_async_engine_for_current_loop():
+    loop_id = _current_loop_id()
+    engine = _engines_by_loop.get(loop_id)
+    if not engine:
+        engine = create_async_engine(
+            settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://"),
+            echo=settings.DATABASE_ECHO,
+            pool_pre_ping=True,
+            pool_recycle=300
+        )
+        _engines_by_loop[loop_id] = engine
+    return engine
 
 # 创建同步数据库引擎（用于迁移等）
 sync_engine = create_engine(
@@ -26,10 +44,22 @@ sync_engine = create_engine(
     pool_recycle=300
 )
 
-# 创建异步会话工厂
-AsyncSessionLocal = sessionmaker(
-    async_engine, class_=AsyncSession, expire_on_commit=False
-)
+# 异步会话工厂（按当前事件循环）
+def _get_sessionmaker_for_current_loop():
+    loop_id = _current_loop_id()
+    sm = _sessionmaker_by_loop.get(loop_id)
+    if not sm:
+        engine = _get_async_engine_for_current_loop()
+        sm = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        _sessionmaker_by_loop[loop_id] = sm
+    return sm
+
+# 兼容导出：提供当前事件循环对应的引擎与Session工厂
+def get_async_engine():
+    return _get_async_engine_for_current_loop()
+
+async_engine = _get_async_engine_for_current_loop()
+AsyncSessionLocal = _get_sessionmaker_for_current_loop()
 
 # 创建同步会话工厂
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
@@ -43,7 +73,8 @@ metadata = MetaData()
 
 async def get_async_db():
     """获取异步数据库会话"""
-    async with AsyncSessionLocal() as session:
+    AsyncSessionFactory = _get_sessionmaker_for_current_loop()
+    async with AsyncSessionFactory() as session:
         try:
             yield session
         except Exception as e:
@@ -83,7 +114,8 @@ async def init_db():
         from app.models import user, travel_plan, destination, activity
         
         # 创建所有表
-        async with async_engine.begin() as conn:
+        engine = _get_async_engine_for_current_loop()
+        async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         
         logger.info("✅ 数据库表创建成功")
@@ -145,7 +177,8 @@ async def create_default_users():
     try:
         from sqlalchemy import text
         
-        async with async_engine.begin() as conn:
+        engine = _get_async_engine_for_current_loop()
+        async with engine.begin() as conn:
             # 检查用户表是否存在数据
             result = await conn.execute(text("SELECT COUNT(*) FROM users"))
             user_count = result.scalar()
@@ -189,6 +222,25 @@ async def create_default_users():
 
 async def close_db():
     """关闭数据库连接"""
-    await async_engine.dispose()
+    for engine in _engines_by_loop.values():
+        await engine.dispose()
     sync_engine.dispose()
     logger.info("✅ 数据库连接已关闭")
+
+
+# 便捷异步Session上下文管理器
+class async_session:
+    def __init__(self):
+        self._session = None
+        self._factory = _get_sessionmaker_for_current_loop()
+    async def __aenter__(self):
+        self._session = self._factory()
+        return self._session
+    async def __aexit__(self, exc_type, exc, tb):
+        try:
+            if exc:
+                await self._session.rollback()
+            else:
+                await self._session.commit()
+        finally:
+            await self._session.close()

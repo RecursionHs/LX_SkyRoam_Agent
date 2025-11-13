@@ -85,11 +85,19 @@ class AgentService:
             await self._update_plan_status(plan_id, "completed")
             
             logger.info(f"旅行方案生成完成，计划ID: {plan_id}")
+            try:
+                await self.data_collector.close()
+            except Exception:
+                pass
             return True
             
         except Exception as e:
             logger.error(f"生成旅行方案失败: {e}")
             await self._update_plan_status(plan_id, "failed")
+            try:
+                await self.data_collector.close()
+            except Exception:
+                pass
             return False
     
     async def _get_travel_plan(self, plan_id: int) -> Optional[TravelPlan]:
@@ -101,16 +109,23 @@ class AgentService:
         return result.scalar_one_or_none()
     
     async def _update_plan_status(self, plan_id: int, status: str):
-        """更新计划状态"""
-        from sqlalchemy import update
+        """更新计划状态（加行级锁防并发）"""
+        from sqlalchemy import select, update
         from app.models.travel_plan import TravelPlan
-        
-        await self.db.execute(
-            update(TravelPlan)
-            .where(TravelPlan.id == plan_id)
-            .values(status=status)
-        )
-        await self.db.commit()
+        from app.core.database import async_session
+
+        async with async_session() as session:
+            await session.execute(
+                select(TravelPlan.id)
+                .where(TravelPlan.id == plan_id)
+                .with_for_update()
+            )
+            await session.execute(
+                update(TravelPlan)
+                .where(TravelPlan.id == plan_id)
+                .values(status=status)
+            )
+            
     
     async def _collect_data(
         self, 
@@ -304,16 +319,17 @@ class AgentService:
         """保存生成的方案"""
         from sqlalchemy import update
         from app.models.travel_plan import TravelPlan
+        from app.core.database import async_session
         
-        # 序列化处理，确保没有datetime对象
         serialized_plans = self._serialize_for_json(plans)
         
-        await self.db.execute(
-            update(TravelPlan)
-            .where(TravelPlan.id == plan_id)
-            .values(generated_plans=serialized_plans)
-        )
-        await self.db.commit()
+        async with async_session() as session:
+            await session.execute(
+                update(TravelPlan)
+                .where(TravelPlan.id == plan_id)
+                .values(generated_plans=serialized_plans)
+            )
+            
     
     async def refine_plan(
         self, 
@@ -381,6 +397,7 @@ class AgentService:
         """将数据收集阶段的原始数据保存为预览，供前端提前展示"""
         from sqlalchemy import update
         from app.models.travel_plan import TravelPlan
+        from app.core.database import async_session
         # 选择展示数量
         MAX_XHS = 8
         MAX_FLIGHTS = 3
@@ -417,9 +434,10 @@ class AgentService:
         }
     
         serialized_preview = self._serialize_for_json([preview])
-        await self.db.execute(
-            update(TravelPlan)
-            .where(TravelPlan.id == plan_id)
-            .values(generated_plans=serialized_preview)
-        )
-        await self.db.commit()
+        async with async_session() as session:
+            await session.execute(
+                update(TravelPlan)
+                .where(TravelPlan.id == plan_id)
+                .values(generated_plans=serialized_preview)
+            )
+            

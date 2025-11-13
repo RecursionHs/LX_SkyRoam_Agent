@@ -36,8 +36,11 @@ class Settings(BaseSettings):
     REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD", None)
     
     # Celery配置
-    CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")
-    CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/2")
+    CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", os.getenv("REDIS_URL", "redis://localhost:6379/1"))
+    CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", os.getenv("REDIS_URL", "redis://localhost:6379/2"))
+    CELERY_WORKER_POOL: Optional[str] = os.getenv("CELERY_WORKER_POOL", None)
+    CELERY_WORKER_CONCURRENCY: Optional[int] = int(os.getenv("CELERY_WORKER_CONCURRENCY", "0")) or None
+    CELERY_PREFETCH_MULTIPLIER: int = int(os.getenv("CELERY_PREFETCH_MULTIPLIER", "2"))
     
     # OpenAI配置
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

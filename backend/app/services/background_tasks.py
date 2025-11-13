@@ -199,9 +199,10 @@ class BackgroundTaskManager:
     async def _check_database(self):
         """检查数据库连接"""
         try:
-            from app.core.database import async_engine
+            from app.core.database import get_async_engine
             from sqlalchemy import text
-            async with async_engine.begin() as conn:
+            engine = get_async_engine()
+            async with engine.begin() as conn:
                 await conn.execute(text("SELECT 1"))
             return True
         except Exception as e:

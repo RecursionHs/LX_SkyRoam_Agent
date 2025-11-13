@@ -104,6 +104,9 @@ cp .env.example .env
 # 启动后端
 cd backend && uvicorn main:app --reload
 
+# 启动Celery Worker
+cd backend && celery -A app.core.celery worker --loglevel=info
+
 # 启动前端
 cd frontend && npm start
 ```

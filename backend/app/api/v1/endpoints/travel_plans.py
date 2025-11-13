@@ -2,12 +2,12 @@
 旅行计划API端点
 """
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from datetime import datetime, date
 
-from app.core.database import get_async_db, AsyncSessionLocal
+from app.core.database import get_async_db
 from app.schemas.travel_plan import (
     TravelPlanCreate, 
     TravelPlanCreateRequest,
@@ -25,41 +25,14 @@ from fastapi.encoders import jsonable_encoder
 # 新增导入
 from app.core.security import get_current_user, is_admin
 from app.models.user import User
+from app.tasks.travel_plan_tasks import (
+    generate_travel_plans_task as celery_generate_travel_plans_task,
+    refine_travel_plan_task as celery_refine_travel_plan_task,
+    export_travel_plan_task as celery_export_travel_plan_task,
+)
+from celery.result import AsyncResult
 
 router = APIRouter()
-
-
-async def generate_travel_plans_task(
-    plan_id: int,
-    preferences: Optional[dict] = None,
-    requirements: Optional[dict] = None
-):
-    """后台任务：生成旅行方案"""
-    async with AsyncSessionLocal() as db:
-        try:
-            logger.info(f"开始后台任务：生成旅行方案 {plan_id}")
-            agent_service = AgentService(db)
-            success = await agent_service.generate_travel_plans(
-                plan_id, preferences, requirements
-            )
-            if success:
-                logger.info(f"后台任务完成：旅行方案 {plan_id} 生成成功")
-            else:
-                logger.error(f"后台任务失败：旅行方案 {plan_id} 生成失败")
-        except Exception as e:
-            logger.error(f"后台任务异常：{e}")
-            # 确保状态更新为失败
-            try:
-                from sqlalchemy import update
-                from app.models.travel_plan import TravelPlan
-                await db.execute(
-                    update(TravelPlan)
-                    .where(TravelPlan.id == plan_id)
-                    .values(status="failed")
-                )
-                await db.commit()
-            except Exception as update_error:
-                logger.error(f"更新状态失败: {update_error}")
 
 
 @router.post("/", response_model=TravelPlanResponse)
@@ -269,7 +242,6 @@ async def batch_delete_travel_plans(
 async def generate_travel_plans(
     plan_id: int,
     request: TravelPlanGenerateRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -281,8 +253,12 @@ async def generate_travel_plans(
         raise HTTPException(status_code=404, detail="旅行计划不存在")
     if not (is_admin(current_user) or plan.user_id == current_user.id):
         raise HTTPException(status_code=403, detail="无权生成该计划")
-    background_tasks.add_task(
-        generate_travel_plans_task,
+    # 防止重复触发生成任务
+    if plan.status == "generating":
+        raise HTTPException(status_code=409, detail="该计划正在生成中，请稍候")
+    # 先更新状态为生成中并加锁，避免并发竞争
+    await agent_service._update_plan_status(plan_id, "generating")
+    async_result = celery_generate_travel_plans_task.delay(
         plan_id,
         request.preferences,
         request.requirements,
@@ -291,7 +267,70 @@ async def generate_travel_plans(
         "message": "旅行方案生成任务已启动",
         "plan_id": plan_id,
         "status": "generating",
+        "task_id": async_result.id,
     }
+
+
+@router.post("/{plan_id}/refine")
+async def refine_travel_plan_async(
+    plan_id: int,
+    request_data: dict,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(get_current_user),
+):
+    """细化旅行方案（Celery异步，需拥有或管理员）"""
+    service = TravelPlanService(db)
+    plan = await service.get_travel_plan(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="旅行计划不存在")
+    if not (is_admin(current_user) or plan.user_id == current_user.id):
+        raise HTTPException(status_code=403, detail="无权细化该计划")
+    plan_index = request_data.get("plan_index")
+    refinements = request_data.get("refinements") or {}
+    if plan_index is None:
+        raise HTTPException(status_code=400, detail="缺少plan_index参数")
+    async_result = celery_refine_travel_plan_task.delay(plan_id, plan_index, refinements)
+    return {
+        "message": "方案细化任务已启动",
+        "plan_id": plan_id,
+        "task_id": async_result.id,
+    }
+
+
+@router.get("/tasks/status/{task_id}")
+async def get_task_status(task_id: str, current_user: User = Depends(get_current_user)):
+    """查询Celery任务状态（需登录）"""
+    try:
+        task_result = AsyncResult(task_id)
+        state = task_result.state
+        if state == "PENDING":
+            return {"task_id": task_id, "status": "pending", "message": "任务等待执行"}
+        if state == "PROGRESS":
+            info = task_result.info or {}
+            return {
+                "task_id": task_id,
+                "status": "progress",
+                "current": info.get("current", 0),
+                "total": info.get("total", 100),
+                "message": info.get("status", "执行中"),
+            }
+        if state == "SUCCESS":
+            return {"task_id": task_id, "status": "success", "result": task_result.result}
+        # FAILURE 或其他状态
+        return {"task_id": task_id, "status": "failed", "message": str(task_result.info)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取任务状态失败: {str(e)}")
+
+
+@router.delete("/tasks/cancel/{task_id}")
+async def cancel_task(task_id: str, current_user: User = Depends(get_current_user)):
+    """取消Celery任务（需登录）"""
+    try:
+        task_result = AsyncResult(task_id)
+        task_result.revoke(terminate=True)
+        return {"task_id": task_id, "status": "cancelled"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"取消任务失败: {str(e)}")
 
 
 @router.get("/{plan_id}/status")
@@ -338,15 +377,30 @@ async def select_travel_plan(
     return {"message": "方案选择成功"}
 
 
-@router.post("/{plan_id}/export")
-async def export_travel_plan_post(
+@router.post("/{plan_id}/export-async")
+async def export_travel_plan_async(
     plan_id: int,
     format: str = "pdf",  # pdf, json, html
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(get_current_user),
 ):
-    """导出旅行计划（POST，同步返回，与GET一致）"""
-    return await export_travel_plan(plan_id=plan_id, format=format, db=db, current_user=current_user)
+    """导出旅行计划（Celery异步，需拥有或管理员）"""
+    allowed = {"json", "html", "pdf"}
+    if format not in allowed:
+        raise HTTPException(status_code=400, detail=f"不支持的导出格式: {format}")
+    service = TravelPlanService(db)
+    plan = await service.get_travel_plan(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="旅行计划不存在")
+    if not (is_admin(current_user) or plan.user_id == current_user.id):
+        raise HTTPException(status_code=403, detail="无权导出该计划")
+    async_result = celery_export_travel_plan_task.delay(plan_id, format)
+    return {
+        "message": "导出任务已启动",
+        "plan_id": plan_id,
+        "format": format,
+        "task_id": async_result.id,
+    }
 
 # =============== 评分相关端点 ===============
 from app.schemas.travel_plan import (

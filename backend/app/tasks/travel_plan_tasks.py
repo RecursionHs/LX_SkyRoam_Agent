@@ -5,8 +5,9 @@
 from celery import current_task
 from app.core.celery import celery_app
 from app.services.agent_service import AgentService
-from app.core.database import AsyncSessionLocal
+from app.core.database import async_session
 from loguru import logger
+from app.core.async_loop import run_coro
 
 
 @celery_app.task(bind=True)
@@ -23,7 +24,7 @@ def generate_travel_plans_task(self, plan_id: int, preferences: dict = None, req
         
         # 创建数据库会话
         async def run_generation():
-            async with AsyncSessionLocal() as db:
+            async with async_session() as db:
                 agent_service = AgentService(db)
                 
                 # 更新进度
@@ -50,9 +51,8 @@ def generate_travel_plans_task(self, plan_id: int, preferences: dict = None, req
                     )
                     return {"status": "failed", "plan_id": plan_id}
         
-        # 运行异步任务
-        import asyncio
-        return asyncio.run(run_generation())
+        # 运行异步任务（复用单例事件循环）
+        return run_coro(run_generation())
         
     except Exception as e:
         logger.error(f"生成旅行方案任务失败: {e}")
@@ -70,7 +70,7 @@ def refine_travel_plan_task(plan_id: int, plan_index: int, refinements: dict):
         logger.info(f"开始执行细化方案任务，计划ID: {plan_id}")
         
         async def run_refinement():
-            async with AsyncSessionLocal() as db:
+            async with async_session() as db:
                 agent_service = AgentService(db)
                 
                 success = await agent_service.refine_plan(
@@ -79,8 +79,7 @@ def refine_travel_plan_task(plan_id: int, plan_index: int, refinements: dict):
                 
                 return {"status": "success" if success else "failed", "plan_id": plan_id}
         
-        import asyncio
-        return asyncio.run(run_refinement())
+        return run_coro(run_refinement())
         
     except Exception as e:
         logger.error(f"细化方案任务失败: {e}")

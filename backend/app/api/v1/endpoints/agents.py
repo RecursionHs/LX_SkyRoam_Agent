@@ -2,12 +2,16 @@
 AI Agent API端点
 """
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any, Optional
 
 from app.core.database import get_async_db
 from app.services.agent_service import AgentService
+from app.tasks.travel_plan_tasks import (
+    generate_travel_plans_task as celery_generate_travel_plans_task,
+    refine_travel_plan_task as celery_refine_travel_plan_task,
+)
 
 router = APIRouter()
 
@@ -17,24 +21,20 @@ async def generate_travel_plan(
     plan_id: int,
     preferences: Optional[Dict[str, Any]] = None,
     requirements: Optional[Dict[str, Any]] = None,
-    background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_async_db)
 ):
-    """生成旅行方案"""
-    agent_service = AgentService(db)
-    
-    # 启动后台任务
-    background_tasks.add_task(
-        agent_service.generate_travel_plans,
+    """生成旅行方案（Celery异步）"""
+    # 直接触发Celery任务
+    async_result = celery_generate_travel_plans_task.delay(
         plan_id,
         preferences,
-        requirements
+        requirements,
     )
-    
     return {
         "message": "旅行方案生成任务已启动",
         "plan_id": plan_id,
-        "status": "generating"
+        "status": "generating",
+        "task_id": async_result.id,
     }
 
 
@@ -45,14 +45,9 @@ async def refine_travel_plan(
     refinements: Dict[str, Any],
     db: AsyncSession = Depends(get_async_db)
 ):
-    """细化旅行方案"""
-    agent_service = AgentService(db)
-    
-    success = await agent_service.refine_plan(plan_id, plan_index, refinements)
-    if not success:
-        raise HTTPException(status_code=400, detail="细化方案失败")
-    
-    return {"message": "方案细化成功"}
+    """细化旅行方案（Celery异步）"""
+    async_result = celery_refine_travel_plan_task.delay(plan_id, plan_index, refinements)
+    return {"message": "方案细化任务已启动", "plan_id": plan_id, "task_id": async_result.id}
 
 
 @router.get("/recommendations/{plan_id}")

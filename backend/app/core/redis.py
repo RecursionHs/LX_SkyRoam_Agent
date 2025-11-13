@@ -12,6 +12,7 @@ from app.core.config import settings
 # Redis连接池
 redis_pool: ConnectionPool = None
 redis_client: redis.Redis = None
+_redis_loop_id: int = None
 
 
 async def init_redis():
@@ -32,6 +33,9 @@ async def init_redis():
         
         # 创建Redis客户端
         redis_client = redis.Redis(connection_pool=redis_pool)
+        # 绑定当前事件循环ID
+        global _redis_loop_id
+        _redis_loop_id = id(asyncio.get_running_loop())
         
         logger.info("✅ Redis连接池创建成功")
         # 测试连接（添加超时保护）
@@ -49,7 +53,14 @@ async def init_redis():
 
 async def get_redis() -> redis.Redis:
     """获取Redis客户端"""
-    if redis_client is None:
+    global _redis_loop_id
+    current_loop_id = id(asyncio.get_running_loop())
+    if redis_client is None or _redis_loop_id != current_loop_id:
+        # 事件循环不一致或未初始化，重新初始化
+        try:
+            await close_redis()
+        except Exception:
+            pass
         await init_redis()
     return redis_client
 
