@@ -1413,5 +1413,23 @@ class DataCollector:
 
     async def close(self):
         """关闭HTTP客户端"""
-        await self.http_client.aclose()
-        await self.city_resolver.close()
+        try:
+            await self.http_client.aclose()
+        except Exception:
+            pass
+        try:
+            await self.city_resolver.close()
+        except Exception:
+            pass
+        try:
+            await self.mcp_client.close()
+        except Exception:
+            pass
+        try:
+            await self.amap_client.close()
+        except Exception:
+            pass
+        try:
+            await self.xhs_client.close()
+        except Exception:
+            pass
