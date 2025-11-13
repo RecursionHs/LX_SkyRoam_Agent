@@ -378,6 +378,8 @@ async def stream_generation_status(
         while True:
             try:
                 current_plan = await service.get_travel_plan(plan_id)
+                if current_plan is not None:
+                    await db.refresh(current_plan)
                 status = current_plan.status
                 elapsed = time.time() - start_ts
                 base_progress = min(90, 10 + (elapsed / max_seconds) * 80)

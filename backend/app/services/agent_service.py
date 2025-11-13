@@ -125,6 +125,7 @@ class AgentService:
                 .where(TravelPlan.id == plan_id)
                 .values(status=status)
             )
+            await session.commit()
             
     
     async def _collect_data(
@@ -329,6 +330,7 @@ class AgentService:
                 .where(TravelPlan.id == plan_id)
                 .values(generated_plans=serialized_plans)
             )
+            await session.commit()
             
     
     async def refine_plan(
@@ -440,4 +442,5 @@ class AgentService:
                 .where(TravelPlan.id == plan_id)
                 .values(generated_plans=serialized_preview)
             )
+            await session.commit()
             
