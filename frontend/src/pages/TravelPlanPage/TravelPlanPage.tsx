@@ -415,6 +415,19 @@ const TravelPlanPage: React.FC = () => {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        const normalizePreview = (pv: any) => {
+          if (!pv || typeof pv !== 'object') return pv;
+          const sections = pv.sections || {
+            weather: pv.weather,
+            hotels: pv.hotels,
+            attractions: pv.attractions,
+            restaurants: pv.restaurants,
+            flights: pv.flights,
+            xiaohongshu_notes: pv.xiaohongshu_notes,
+          };
+          return { ...pv, sections };
+        };
+        let finished = false;
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -428,23 +441,29 @@ const TravelPlanPage: React.FC = () => {
             try {
               const evt = JSON.parse(jsonStr);
               if (typeof evt.progress === 'number') setProgress(evt.progress);
-              if (evt.preview && generationStatus === 'generating') setPreviewData(evt.preview);
+              if (evt.preview) setPreviewData(normalizePreview(evt.preview));
               if (evt.status === 'completed') {
                 setCurrentStep(3);
                 setGenerationStatus('completed');
                 setProgress(100);
                 setPreviewData(null);
                 setTimeout(() => navigate(`/plan/${planId}`), 2000);
+                finished = true;
                 return;
               } else if (evt.status === 'failed') {
                 setGenerationStatus('failed');
+                finished = true;
                 return;
               } else if (evt.status === 'timeout') {
                 setGenerationStatus('timeout');
+                finished = true;
                 return;
               }
             } catch {}
           }
+        }
+        if (!finished && generationStatus === 'generating') {
+          await pollGenerationStatus(planId);
         }
       } catch {
         await pollGenerationStatus(planId);
