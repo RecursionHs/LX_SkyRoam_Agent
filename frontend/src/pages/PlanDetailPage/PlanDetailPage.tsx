@@ -1603,7 +1603,7 @@ const PlanDetailPage: React.FC = () => {
                               <div style={{ position: 'relative', border: '1px solid var(--border-soft)', borderRadius: 6, overflow: 'hidden', background: 'var(--overlay)' }}>
                                 <a href={note.url} target="_blank" rel="noopener noreferrer" style={{ display: 'block' }}>
                                   {note.img_urls && note.img_urls.length > 0 ? (
-                                    <img src={note.img_urls[0]} alt={note.title || '小红书笔记'} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
+                                    <img src={buildApiUrl(`/proxy/image?url=${encodeURIComponent(note.img_urls[0])}`)} alt={note.title || '小红书笔记'} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
                                   ) : (
                                     <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-soft)' }}>无图片</div>
                                   )}
