@@ -371,6 +371,11 @@ class PlaywrightXHSCrawler:
                 
                 # 滚动加载更多
                 if len(notes) < max_notes:
+                    try:
+                        if await self._is_note_modal_open():
+                            await self._close_note_modal()
+                    except Exception:
+                        pass
                     prev_count = 0
                     try:
                         prev_count = await self.page.evaluate('document.querySelectorAll("a[href*=\\\"/explore/\\\"]").length')
@@ -532,6 +537,15 @@ class PlaywrightXHSCrawler:
         try:
             # 获取当前页面URL，用于后续返回
             current_url = self.page.url
+            href = None
+            try:
+                link = await note_element.query_selector('a[href*="/explore/"]')
+                if not link:
+                    link = await note_element.query_selector('a[href*="/discovery/"]')
+                if link:
+                    href = await link.get_attribute('href')
+            except Exception:
+                pass
             
             # 直接尝试点击笔记卡片进入详情页
             clicked = False
@@ -582,7 +596,10 @@ class PlaywrightXHSCrawler:
             if not clicked:
                 try:
                     logger.debug("尝试JavaScript点击")
-                    await link_element.evaluate('element => element.click()')
+                    if href:
+                        await self.page.evaluate('u => { const a = document.createElement("a"); a.href = u; a.style.display="none"; document.body.appendChild(a); a.click(); a.remove(); }', href)
+                    else:
+                        await note_element.evaluate('el => el.click()')
                     clicked = True
                     logger.debug("JavaScript点击成功")
                 except Exception as e:
@@ -591,9 +608,12 @@ class PlaywrightXHSCrawler:
             # 策略3: 直接导航
             if not clicked:
                 try:
-                    full_url = f"https://www.xiaohongshu.com{href}" if href.startswith('/') else href
+                    full_url = None
+                    if href:
+                        full_url = f"https://www.xiaohongshu.com{href}" if href.startswith('/') else href
                     logger.debug(f"直接导航到: {full_url}")
-                    await self.page.goto(full_url, timeout=10000)
+                    if full_url:
+                        await self.page.goto(full_url, timeout=10000)
                     clicked = True
                     logger.debug("导航成功")
                 except Exception as e:
@@ -603,13 +623,32 @@ class PlaywrightXHSCrawler:
                 logger.debug("所有点击策略都失败")
                 return ""
             
-            # 等待详情页加载
-            await self.page.wait_for_timeout(3000)
+            try:
+                await self.page.wait_for_timeout(1500)
+            except Exception:
+                pass
             
-            # 检查是否成功进入详情页
+            modal_open = False
+            try:
+                modal_open = await self._is_note_modal_open()
+            except Exception:
+                modal_open = False
             current_page_url = self.page.url
-            if '/explore/' not in current_page_url:
-                logger.debug(f"未成功进入详情页，当前URL: {current_page_url}")
+            if '/explore/' not in current_page_url and not modal_open:
+                if href:
+                    try:
+                        full_url = f"https://www.xiaohongshu.com{href}" if href.startswith('/') else href
+                        await self.page.goto(full_url, timeout=10000)
+                        await self.page.wait_for_timeout(1000)
+                        current_page_url = self.page.url
+                    except Exception as e:
+                        logger.debug(f"导航尝试失败: {e}")
+                try:
+                    modal_open = await self._is_note_modal_open()
+                except Exception:
+                    modal_open = False
+            if '/explore/' not in current_page_url and not modal_open:
+                logger.debug(f"未进入详情页或弹窗，当前URL: {current_page_url}")
                 return ""
             
             logger.debug(f"成功进入详情页: {current_page_url}")
@@ -680,12 +719,14 @@ class PlaywrightXHSCrawler:
             
             # 返回搜索结果页面
             try:
-                await self.page.go_back(timeout=5000)
+                if await self._is_note_modal_open():
+                    await self._close_note_modal()
+                else:
+                    await self.page.go_back(timeout=5000)
                 await self.page.wait_for_timeout(1000)
-                logger.debug("已返回搜索结果页面")
+                logger.debug("已返回搜索结果页面或关闭弹窗")
             except Exception as e:
-                logger.debug(f"返回搜索页面失败: {e}")
-                # 如果返回失败，尝试重新导航到搜索页面
+                logger.debug(f"返回或关闭失败: {e}")
                 try:
                     await self.page.goto(current_url, timeout=10000)
                     await self.page.wait_for_timeout(2000)
@@ -697,6 +738,72 @@ class PlaywrightXHSCrawler:
         except Exception as e:
             logger.debug(f"获取详细描述时发生错误: {e}")
             return ""
+
+    async def _is_note_modal_open(self) -> bool:
+        try:
+            selectors = [
+                '#detail-desc',
+                '.note-detail',
+                '.detail-desc',
+                '[class*="modal"]',
+                '[class*="Dialog"]',
+                '[class*="drawer"]'
+            ]
+            for s in selectors:
+                try:
+                    el = await self.page.query_selector(s)
+                    if el:
+                        return True
+                except Exception:
+                    continue
+            return False
+        except Exception:
+            return False
+
+    async def _close_note_modal(self) -> bool:
+        try:
+            close_selectors = [
+                '.close',
+                '.close-btn',
+                'button[class*="close"]',
+                'svg[class*="close"]',
+                '[class*="close"]'
+            ]
+            for s in close_selectors:
+                try:
+                    el = await self.page.query_selector(s)
+                    if el:
+                        await el.scroll_into_view_if_needed()
+                        await self.page.wait_for_timeout(100)
+                        try:
+                            await el.click(timeout=1000)
+                        except Exception:
+                            try:
+                                await self.page.evaluate('e => e.click()', el)
+                            except Exception:
+                                pass
+                        await self.page.wait_for_timeout(300)
+                        if not await self._is_note_modal_open():
+                            return True
+                except Exception:
+                    continue
+            try:
+                await self.page.keyboard.press('Escape')
+                await self.page.wait_for_timeout(300)
+                if not await self._is_note_modal_open():
+                    return True
+            except Exception:
+                pass
+            try:
+                await self.page.evaluate('window.history.back()')
+                await self.page.wait_for_timeout(400)
+                if not await self._is_note_modal_open():
+                    return True
+            except Exception:
+                pass
+            return False
+        except Exception:
+            return False
     
     def _parse_number(self, text: str) -> int:
         """解析数字文本（如1.2k -> 1200）"""
