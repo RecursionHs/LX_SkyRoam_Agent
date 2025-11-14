@@ -129,6 +129,20 @@ const TravelPlanPage: React.FC = () => {
     return candidates.find((u) => typeof u === 'string' && u.length > 0);
   };
 
+  const safeImgSrc = (url?: string) => {
+    if (!url) return undefined;
+    try {
+      const u = new URL(url);
+      const host = (u.hostname || '').toLowerCase();
+      if (host.endsWith('.xhscdn.com') || host.endsWith('.xiaohongshu.com') || host === 'img.xiaohongshu.com') {
+        return buildApiUrl(`/proxy/image?url=${encodeURIComponent(url)}`);
+      }
+      return url;
+    } catch {
+      return url;
+    }
+  };
+
   const getPrice = (item: any) => {
     const p = item?.price || item?.price_total || item?.min_price || item?.avg_price || item?.price_per_night;
     return typeof p === 'number' ? `¥${p}` : typeof p === 'string' ? p : undefined;
@@ -760,7 +774,7 @@ const TravelPlanPage: React.FC = () => {
                           style={{ borderRadius: 16 }}
                           cover={
                             cover ? (
-                              <img src={cover} alt={getTitle(h)} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
+                              <img src={safeImgSrc(cover)} alt={getTitle(h)} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
                             ) : undefined
                           }
                         >
@@ -797,7 +811,7 @@ const TravelPlanPage: React.FC = () => {
                           cover={
                             cover ? (
                               <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
-                                <img src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
+                                <img src={safeImgSrc(cover)} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
                                 {a?.rating && (
                                   <Tag color="gold" style={{ position: 'absolute', top: 8, right: 8 }}>
                                     <StarFilled /> {a.rating}
@@ -845,7 +859,7 @@ const TravelPlanPage: React.FC = () => {
                           cover={
                             cover ? (
                               <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
-                                <img src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
+                                <img src={safeImgSrc(cover)} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
                                 {r?.rating && (
                                   <Tag color="gold" style={{ position: 'absolute', top: 8, right: 8 }}>
                                     <StarFilled /> {r.rating}
@@ -942,7 +956,7 @@ const TravelPlanPage: React.FC = () => {
                           cover={
                             cover ? (
                               <div style={{ position: 'relative', height: 160, overflow: 'hidden' }}>
-                                <img src={cover} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
+                                <img src={safeImgSrc(cover)} alt={title} height={160} style={{ objectFit: 'cover', width: '100%' }} loading="lazy" />
                                 {typeof likes === 'number' && (
                                   <Tag color="magenta" style={{ position: 'absolute', top: 8, right: 8 }}>
                                     <HeartOutlined /> {likes}
