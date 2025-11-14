@@ -129,6 +129,38 @@ const TravelPlanPage: React.FC = () => {
     return candidates.find((u) => typeof u === 'string' && u.length > 0);
   };
 
+  const normalizePreview = (pv: any) => {
+    if (!pv || typeof pv !== 'object') return pv;
+    const sections = pv.sections || {
+      weather: pv.weather,
+      hotels: pv.hotels,
+      attractions: pv.attractions,
+      restaurants: pv.restaurants,
+      flights: pv.flights,
+      xiaohongshu_notes: pv.xiaohongshu_notes,
+    };
+    return { sections };
+  };
+
+  const lastPreviewHashRef = useRef<string | null>(null);
+  const lastProgressRef = useRef<number>(0);
+
+  const setPreviewDataIfChanged = (pv: any) => {
+    const normalized = normalizePreview(pv);
+    const hash = (() => {
+      try { return JSON.stringify(normalized); } catch { return String(normalized); }
+    })();
+    if (lastPreviewHashRef.current === hash) return;
+    lastPreviewHashRef.current = hash;
+    setPreviewData(normalized);
+  };
+
+  const setProgressIfChanged = (p: number) => {
+    if (p === lastProgressRef.current) return;
+    lastProgressRef.current = p;
+    setProgress(p);
+  };
+
   const safeImgSrc = (url?: string) => {
     if (!url) return undefined;
     try {
@@ -191,20 +223,30 @@ const TravelPlanPage: React.FC = () => {
     };
   };
 
-  const PreviewGrid: React.FC<{ data: any[]; renderCard: (item: any, idx: number) => React.ReactNode; emptyText: string }> = ({ data, renderCard, emptyText }) => {
+  const previewScrollPosRef = useRef<Record<string, number>>({});
+
+  const PreviewGrid: React.FC<{ data: any[]; renderCard: (item: any, idx: number) => React.ReactNode; emptyText: string; scrollKey: string }> = ({ data, renderCard, emptyText, scrollKey }) => {
     const [visible, setVisible] = useState<number>(12);
+    const containerRef = useRef<HTMLDivElement | null>(null);
     const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
       const el = e.currentTarget;
       if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
         setVisible((v) => Math.min(v + 12, data.length));
       }
+      previewScrollPosRef.current[scrollKey] = el.scrollTop;
     };
+    useEffect(() => {
+      const pos = previewScrollPosRef.current[scrollKey] || 0;
+      if (containerRef.current) {
+        containerRef.current.scrollTop = pos;
+      }
+    }, [data, scrollKey]);
     if (!Array.isArray(data) || data.length === 0) {
       return <Empty description={emptyText} />;
     }
     const slice = data.slice(0, visible);
     return (
-      <div style={{ maxHeight: 420, overflowY: 'auto', paddingRight: 8 }} onScroll={onScroll}>
+      <div ref={containerRef} style={{ maxHeight: 420, overflowY: 'auto', paddingRight: 8 }} onScroll={onScroll}>
         <Row gutter={[16, 16]}>
           {slice.map((item, idx) => (
             <Col xs={24} sm={12} md={8} lg={6} key={idx}>
@@ -219,9 +261,10 @@ const TravelPlanPage: React.FC = () => {
   const renderPreviewGrid = (
     data: any[],
     renderCard: (item: any, idx: number) => React.ReactNode,
-    emptyText: string
+    emptyText: string,
+    scrollKey: string
   ) => {
-    return <PreviewGrid data={data} renderCard={renderCard} emptyText={emptyText} />;
+    return <PreviewGrid data={data} renderCard={renderCard} emptyText={emptyText} scrollKey={scrollKey} />;
   };
 
   const fetchPlaces = async (q: string, signal?: AbortSignal) => {
@@ -321,6 +364,8 @@ const TravelPlanPage: React.FC = () => {
       icon: <CheckCircleOutlined />
     }
   ];
+
+  const [previewActiveKey, setPreviewActiveKey] = useState<string>('weather');
 
   const handleSubmit = async (values: TravelRequest) => {
     setLoading(true);
@@ -429,18 +474,6 @@ const TravelPlanPage: React.FC = () => {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        const normalizePreview = (pv: any) => {
-          if (!pv || typeof pv !== 'object') return pv;
-          const sections = pv.sections || {
-            weather: pv.weather,
-            hotels: pv.hotels,
-            attractions: pv.attractions,
-            restaurants: pv.restaurants,
-            flights: pv.flights,
-            xiaohongshu_notes: pv.xiaohongshu_notes,
-          };
-          return { ...pv, sections };
-        };
         let finished = false;
         while (true) {
           const { done, value } = await reader.read();
@@ -454,13 +487,14 @@ const TravelPlanPage: React.FC = () => {
             const jsonStr = line.slice(6);
             try {
               const evt = JSON.parse(jsonStr);
-              if (typeof evt.progress === 'number') setProgress(evt.progress);
-              if (evt.preview) setPreviewData(normalizePreview(evt.preview));
+              if (typeof evt.progress === 'number') setProgressIfChanged(evt.progress);
+              if (evt.preview) setPreviewDataIfChanged(evt.preview);
               if (evt.status === 'completed') {
                 setCurrentStep(3);
                 setGenerationStatus('completed');
                 setProgress(100);
                 setPreviewData(null);
+                lastPreviewHashRef.current = null;
                 setTimeout(() => navigate(`/plan/${planId}`), 2000);
                 finished = true;
                 return;
@@ -509,10 +543,14 @@ const TravelPlanPage: React.FC = () => {
         
         // 如果处于生成中，尝试读取预览
         if (status.status === 'generating') {
-          const preview = Array.isArray(status.generated_plans)
-            ? status.generated_plans.find((p: any) => p?.is_preview && p?.preview_type === 'raw_data_preview')
-            : null;
-          if (isMountedRef.current) setPreviewData(preview || null);
+        const preview = Array.isArray(status.generated_plans)
+          ? status.generated_plans.find((p: any) => p?.is_preview && p?.preview_type === 'raw_data_preview')
+          : null;
+        if (isMountedRef.current) {
+          if (preview) {
+            setPreviewDataIfChanged(preview);
+          }
+        }
         }
         
         // 动态更新进度，基于轮询次数
@@ -678,7 +716,8 @@ const TravelPlanPage: React.FC = () => {
           bodyStyle={{ padding: isMobile ? '12px' : '24px' }}
         >
           <Tabs
-            defaultActiveKey="weather"
+            activeKey={previewActiveKey}
+            onChange={(k) => setPreviewActiveKey(String(k))}
             tabPosition={isMobile ? 'top' : 'left'}
             items={[
               {
@@ -790,7 +829,8 @@ const TravelPlanPage: React.FC = () => {
                         </Card>
                       );
                     },
-                    "暂无酒店数据"
+                    "暂无酒店数据",
+                    "hotels"
                   )
                 ),
               },
@@ -835,7 +875,8 @@ const TravelPlanPage: React.FC = () => {
                         </Card>
                       );
                     },
-                    "暂无景点数据"
+                    "暂无景点数据",
+                    "attractions"
                   )
                 ),
               },
@@ -895,7 +936,8 @@ const TravelPlanPage: React.FC = () => {
                         </Card>
                       );
                     },
-                    "暂无餐厅数据"
+                    "暂无餐厅数据",
+                    "restaurants"
                   )
                 ),
               },
@@ -908,8 +950,12 @@ const TravelPlanPage: React.FC = () => {
                     if (!Array.isArray(flights) || flights.length === 0) {
                       return <Empty description="暂无航班数据" />;
                     }
+                    const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
+                      previewScrollPosRef.current["flights"] = e.currentTarget.scrollTop;
+                    };
+                    const flightsPos = previewScrollPosRef.current["flights"] || 0;
                     return (
-                      <div style={{ maxHeight: 420, overflowY: 'auto', paddingRight: 8 }}>
+                      <div style={{ maxHeight: 420, overflowY: 'auto', paddingRight: 8 }} onScroll={onScroll} ref={(el) => { if (el) el.scrollTop = flightsPos; }}>
                         <Timeline mode={isMobile ? 'left' : 'alternate'}>
                           {flights.map((f: any, idx: number) => (
                             <Timeline.Item key={idx} color="blue">
@@ -1017,7 +1063,8 @@ const TravelPlanPage: React.FC = () => {
                         </Card>
                       );
                     },
-                    "暂无小红书数据"
+                    "暂无小红书数据",
+                    "xhs"
                   )
                 ),
               },
