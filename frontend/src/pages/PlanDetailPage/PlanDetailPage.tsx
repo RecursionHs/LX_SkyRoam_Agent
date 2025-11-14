@@ -40,7 +40,7 @@ import {
 import { Badge } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
-import { authFetch, getToken } from '../../utils/auth';
+import { authFetch, fetchJson, getToken } from '../../utils/auth';
 import MapComponent from '../../components/MapComponent/MapComponent';
 
 const { Title, Text } = Typography;
@@ -1081,22 +1081,31 @@ const PlanDetailPage: React.FC = () => {
   // 新增：发布/取消发布切换
   const togglePublish = async () => {
     if (!id || !planDetail) return;
+    const guardRef = (togglePublish as any)._lastTsRef || ((togglePublish as any)._lastTsRef = { current: 0 });
+    const now = Date.now();
+    if (now - guardRef.current < 2000) {
+      message.warning('操作过于频繁，请稍后再试');
+      return;
+    }
+    guardRef.current = now;
     const planId = Number(id);
     setPublishing(true);
     try {
       const endpoint = planDetail.is_public
         ? API_ENDPOINTS.TRAVEL_PLAN_UNPUBLISH(planId)
         : API_ENDPOINTS.TRAVEL_PLAN_PUBLISH(planId);
-      const resp = await authFetch(buildApiUrl(endpoint), { method: 'PUT', headers: { 'Content-Type': 'application/json' } });
-      if (resp.ok) {
-        await fetchPlanDetail();
-        message.success(planDetail.is_public ? '已取消公开' : '已公开发布');
-      } else {
-        message.error('操作失败');
-      }
-    } catch (err) {
+      await fetchJson(buildApiUrl(endpoint), { method: 'PUT', headers: { 'Content-Type': 'application/json' } });
+      await fetchPlanDetail();
+      message.success(planDetail.is_public ? '已取消公开' : '已公开发布');
+    } catch (err: any) {
       console.error('发布/取消发布失败:', err);
-      message.error('发布操作失败');
+      console.error(err);
+      if (err && err.status === -1) {
+        message.error('网络异常或操作过于频繁被阻止，请稍后再试');
+      } else {
+        const msg = (err && err.message) ? String(err.message) : '';
+        message.error(msg || '发布操作失败');
+      }
     } finally {
       setPublishing(false);
     }
