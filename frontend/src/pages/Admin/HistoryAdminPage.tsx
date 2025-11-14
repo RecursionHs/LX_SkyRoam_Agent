@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Tag, Typography, Space, Spin, Button, message, Grid } from 'antd';
+import { Card, Table, Tag, Typography, Space, Spin, Button, message, Grid, Popconfirm } from 'antd';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
 import { authFetch } from '../../utils/auth';
 import { useNavigate } from 'react-router-dom';
@@ -49,7 +49,6 @@ const HistoryAdminPage: React.FC = () => {
   }, [fetchPlans, pagination.pageSize]);
 
   const handleDeletePlan = async (planId: number) => {
-    if (!window.confirm(`确认删除计划 ${planId} ?`)) return;
     try {
       const response = await authFetch(buildApiUrl(API_ENDPOINTS.TRAVEL_PLAN_DETAIL(planId)), {
         method: 'DELETE',
@@ -71,7 +70,6 @@ const HistoryAdminPage: React.FC = () => {
       message.warning('请先选择要删除的计划');
       return;
     }
-    if (!window.confirm(`确认批量删除 ${selectedIds.length} 条计划？`)) return;
     try {
       const res = await authFetch(buildApiUrl(API_ENDPOINTS.TRAVEL_PLANS_BATCH_DELETE), {
         method: 'POST',
@@ -113,7 +111,14 @@ const HistoryAdminPage: React.FC = () => {
       render: (_: any, record: TravelPlan) => (
         <Space>
           <Button type="link" onClick={() => navigate(`/plan/${record.id}`)}>查看</Button>
-          <Button type="link" danger onClick={() => handleDeletePlan(record.id)}>删除</Button>
+          <Popconfirm
+            title={<span style={{ color: '#fff' }}>{`确认删除计划 ${record.id} ?`}</span>}
+            okText="删除"
+            cancelText="取消"
+            onConfirm={() => handleDeletePlan(record.id)}
+          >
+            <Button type="link" danger>删除</Button>
+          </Popconfirm>
         </Space>
       )
     }
@@ -129,7 +134,15 @@ const HistoryAdminPage: React.FC = () => {
       <Space direction="vertical" style={{ width: '100%' }} size="large">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Title level={2}>历史记录管理</Title>
-          <Button danger onClick={handleBatchDelete}>删除所选</Button>
+          <Popconfirm
+            title={<span style={{ color: '#fff' }}>{`确认批量删除 ${selectedIds.length} 条计划？`}</span>}
+            okText="删除"
+            cancelText="取消"
+            onConfirm={handleBatchDelete}
+            disabled={selectedIds.length === 0}
+          >
+            <Button type="primary" danger disabled={selectedIds.length === 0}>删除所选</Button>
+          </Popconfirm>
         </div>
         <Card>
           {loading ? (
