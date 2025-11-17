@@ -1,3 +1,23 @@
+<div align="center">
+  <a href="#">
+    <img src="https://raw.githubusercontent.com/LuoXi-Project/LX_Project_Template/refs/heads/main/ui/logo.png" width="240" height="240" alt="点我跳转文档">
+  </a>
+</div>
+
+<div align="center">
+
+# ✨ 洛曦 云旅Agent ✨
+
+[![][python]][python]
+[![][github-release-shield]][github-release-link]
+[![][github-stars-shield]][github-stars-link]
+[![][github-forks-shield]][github-forks-link]
+[![][github-issues-shield]][github-issues-link]  
+[![][github-contributors-shield]][github-contributors-link]
+[![][github-license-shield]][github-license-link]
+
+</div>
+
 # LX SkyRoam Agent - 智能旅游攻略生成器
 
 一个基于AI的智能旅游攻略生成系统，提供个性化的旅行方案规划。
@@ -119,15 +139,9 @@ cd frontend && npm start
 4. 用户可以调整和细化方案
 5. 导出最终方案（PDF、图片、分享链接）
 
-## 开发计划
+## ⭐️ Star 经历
 
-- [x] 项目架构设计
-- [ ] 后端API开发
-- [ ] AI Agent核心逻辑
-- [ ] MCP工具集成
-- [ ] 前端界面开发
-- [ ] 数据爬虫实现
-- [ ] 测试和优化
+[![Star History Chart](https://api.star-history.com/svg?repos=Ikaros-521/LX_SkyRoam_Agent&type=Date)](https://star-history.com/#Ikaros-521/LX_SkyRoam_Agent&Date)
 
 ## 贡献指南
 
@@ -135,4 +149,30 @@ cd frontend && npm start
 
 ## 许可证
 
-MIT License
+GPL3.0 License
+
+[python]: https://img.shields.io/badge/python-3.10+-blue.svg?labelColor=black
+[back-to-top]: https://img.shields.io/badge/-BACK_TO_TOP-black?style=flat-square
+[github-action-release-link]: https://github.com/actions/workflows/Ikaros-521/LX_SkyRoam_Agent/release.yml
+[github-action-release-shield]: https://img.shields.io/github/actions/workflow/status/Ikaros-521/LX_SkyRoam_Agent/release.yml?label=release&labelColor=black&logo=githubactions&logoColor=white&style=flat-square
+[github-action-test-link]: https://github.com/actions/workflows/Ikaros-521/LX_SkyRoam_Agent/test.yml
+[github-action-test-shield]: https://img.shields.io/github/actions/workflow/status/Ikaros-521/LX_SkyRoam_Agent/test.yml?label=test&labelColor=black&logo=githubactions&logoColor=white&style=flat-square
+[github-codespace-link]: https://codespaces.new/Ikaros-521/LX_SkyRoam_Agent
+[github-codespace-shield]: https://github.com/codespaces/badge.svg
+[github-contributors-link]: https://github.com/Ikaros-521/LX_SkyRoam_Agent/graphs/contributors
+[github-contributors-shield]: https://img.shields.io/github/contributors/Ikaros-521/LX_SkyRoam_Agent?color=c4f042&labelColor=black&style=flat-square
+[github-forks-link]: https://github.com/Ikaros-521/LX_SkyRoam_Agent/network/members
+[github-forks-shield]: https://img.shields.io/github/forks/Ikaros-521/LX_SkyRoam_Agent?color=8ae8ff&labelColor=black&style=flat-square
+[github-issues-link]: https://github.com/Ikaros-521/LX_SkyRoam_Agent/issues
+[github-issues-shield]: https://img.shields.io/github/issues/Ikaros-521/LX_SkyRoam_Agent?color=ff80eb&labelColor=black&style=flat-square
+[github-license-link]: https://github.com/Ikaros-521/LX_SkyRoam_Agent/blob/main/LICENSE
+[github-license-shield]: https://img.shields.io/github/license/Ikaros-521/LX_SkyRoam_Agent?color=white&labelColor=black&style=flat-square
+[github-release-link]: https://github.com/Ikaros-521/LX_SkyRoam_Agent/releases
+[github-release-shield]: https://img.shields.io/github/v/release/Ikaros-521/LX_SkyRoam_Agent?color=369eff&labelColor=black&logo=github&style=flat-square
+[github-releasedate-link]: https://github.com/Ikaros-521/LX_SkyRoam_Agent/releases
+[github-releasedate-shield]: https://img.shields.io/github/release-date/Ikaros-521/LX_SkyRoam_Agent?labelColor=black&style=flat-square
+[github-stars-link]: https://github.com/Ikaros-521/LX_SkyRoam_Agent/network/stargazers
+[github-stars-shield]: https://img.shields.io/github/stars/Ikaros-521/LX_SkyRoam_Agent?color=ffcb47&labelColor=black&style=flat-square
+[pr-welcome-link]: https://github.com/Ikaros-521/LX_SkyRoam_Agent/pulls
+[pr-welcome-shield]: https://img.shields.io/badge/%F0%9F%A4%AF%20PR%20WELCOME-%E2%86%92-ffcb47?labelColor=black&style=for-the-badge
+[profile-link]: https://github.com/LuoXi-Project
