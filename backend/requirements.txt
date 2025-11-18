@@ -17,6 +17,7 @@ flower==2.0.1
 
 # HTTP Client
 httpx==0.25.2
+httpx[http2]
 aiohttp==3.9.1
 requests==2.31.0
 aiofiles==25.1.0

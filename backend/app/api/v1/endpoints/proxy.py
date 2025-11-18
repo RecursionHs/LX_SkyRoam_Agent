@@ -2,6 +2,9 @@ from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import StreamingResponse
 import httpx
 from urllib.parse import urlparse
+from pathlib import Path
+import json
+from loguru import logger
 
 router = APIRouter()
 
@@ -26,24 +29,103 @@ def _is_allowed_host(url: str) -> bool:
     except Exception:
         return False
 
+def _build_cookie_header(url: str) -> str:
+    try:
+        cookies_dir = Path(__file__).parent.parent.parent.parent / "data" / "cookies"
+        candidates = [
+            cookies_dir / "xhs_cookies_primary.json",
+            cookies_dir / "xhs_cookies_backup.json",
+            cookies_dir / "xhs_cookies.json",
+        ]
+        cookie_file = next((p for p in candidates if p.exists()), None)
+        if not cookie_file:
+            return ""
+        with open(cookie_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        cookies = data.get("cookies", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        if not cookies:
+            return ""
+        parts = []
+        for c in cookies:
+            name = c.get("name")
+            value = c.get("value")
+            if name and value:
+                parts.append(f"{name}={value}")
+        logger.info(f"[图片代理] 组装Cookie数量: {len(parts)} 来自: {cookie_file}")
+        return "; ".join(parts)
+    except Exception:
+        return ""
+
 @router.get("/image")
-async def proxy_image(url: str = Query(..., description="图片源URL")):
+async def proxy_image(
+    url: str = Query(..., description="图片源URL"),
+    referer: str = Query("https://www.xiaohongshu.com/explore", description="来源页面，用于跨域验证")
+):
     if not _is_allowed_host(url):
         raise HTTPException(status_code=400, detail="不支持的图片来源")
+
+    parsed = urlparse(url)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        "Referer": "https://www.xiaohongshu.com/",
+        "Referer": referer,
+        "Origin": "https://www.xiaohongshu.com",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Host": parsed.hostname or "",
     }
+    cookie_header = _build_cookie_header(url)
+    if cookie_header:
+        headers["Cookie"] = cookie_header
 
-    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+    logger.info(f"[图片代理] 请求URL: {url}")
+    logger.info(f"[图片代理] 请求头: {{'User-Agent': headers['User-Agent'], 'Referer': headers['Referer'], 'Host': headers['Host'], 'Cookie': '***' if 'Cookie' in headers else '(none)'}}")
+
+    use_http2 = False
+    try:
+        import h2  # type: ignore
+        use_http2 = True
+    except Exception:
+        use_http2 = False
+
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True, http2=use_http2) as client:
         try:
             resp = await client.get(url, headers=headers)
+            logger.info(f"[图片代理] 源站响应: {resp.status_code} content-type={resp.headers.get('content-type')} length={resp.headers.get('content-length')}")
         except Exception as e:
+            logger.error(f"[图片代理] 请求异常: {e}")
             raise HTTPException(status_code=502, detail=f"源站请求失败: {e}")
 
     if resp.status_code != 200:
+        detail = resp.text[:200] if resp.text else "源站返回非200"
+        logger.error(f"[图片代理] 非200响应: status={resp.status_code} body={detail}")
+        # 尝试备用域名
+        host = parsed.hostname or ""
+        fallback_hosts = []
+        if host.startswith("sns-webpic-") and host.endswith(".xhscdn.com"):
+            # 同区域图片域
+            region = host.split("sns-webpic-")[-1].replace(".xhscdn.com", "")
+            fallback_hosts.append(f"sns-img-{region}.xhscdn.com")
+        # 其他区域的通用备选
+        for region in ["qc", "hw", "bd"]:
+            h = f"sns-img-{region}.xhscdn.com"
+            if h not in fallback_hosts:
+                fallback_hosts.append(h)
+        for fh in fallback_hosts:
+            alt = url.replace(host, fh)
+            logger.info(f"[图片代理] 尝试备用域名: {alt}")
+            try:
+                alt_headers = dict(headers)
+                alt_headers["Host"] = fh
+                alt_resp = await client.get(alt, headers=alt_headers)
+                logger.info(f"[图片代理] 备用域响应: {alt_resp.status_code}")
+                if alt_resp.status_code == 200:
+                    content_type = alt_resp.headers.get("content-type", "image/jpeg")
+                    return StreamingResponse(alt_resp.aiter_bytes(), media_type=content_type, headers={"Cache-Control": "public, max-age=86400"})
+            except Exception as e:
+                logger.warning(f"[图片代理] 备用域请求失败: {e}")
         raise HTTPException(status_code=resp.status_code, detail="源站返回非200")
 
     content_type = resp.headers.get("content-type", "image/jpeg")
