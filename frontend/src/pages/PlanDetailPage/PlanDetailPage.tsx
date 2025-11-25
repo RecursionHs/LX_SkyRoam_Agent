@@ -653,10 +653,6 @@ const DailyItineraryCard: React.FC<{ day: DailyItinerary }> = ({ day }) => {
               )}
               <Card size="small" title="费用与住宿" bordered={false} className="glass-card">
                 <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                  <Space align="center">
-                    <DollarOutlined style={{ color: '#52c41a' }} />
-                    <Text>预计花费 ¥{toNumber(day.estimated_cost)}</Text>
-                  </Space>
                   {day.stay ? (
                     <Space direction="vertical" size={2}>
                       <Text strong>{day.stay.name}</Text>
