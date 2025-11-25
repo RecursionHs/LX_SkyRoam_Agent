@@ -1060,93 +1060,128 @@ class PlanGenerator:
             # 异步并发调用各模块生成器，子方案支持失败重试
             logger.info("开始并发生成各模块方案，并启用重试机制...")
 
-            async def run_with_retry(coro_fn, *args, attempts: int = 3, delay: float = 1.0, module_name: str = "", **kwargs):
+            async def run_with_retry(
+                coro_fn,
+                *args,
+                attempts: int = 3,
+                delay: float = 1.0,
+                module_name: str = "",
+                **kwargs,
+            ):
+                last_error: Optional[Exception] = None
                 for i in range(attempts):
                     try:
                         result = await coro_fn(*args, **kwargs)
-                        return result
+                        return {"success": True, "data": result or []}
                     except Exception as e:
+                        last_error = e
                         logger.error(f"{module_name} 生成失败，第 {i+1}/{attempts} 次: {e}")
                         if i < attempts - 1:
                             await asyncio.sleep(delay)
-                logger.error(f"{module_name} 重试耗尽，返回空列表")
-                return []
+                logger.error(f"{module_name} 重试耗尽，将返回空结果")
+                return {"success": False, "data": [], "error": last_error}
 
-            accommodation_task = asyncio.create_task(
-                run_with_retry(
-                    self._generate_accommodation_plans,
-                    processed_data.get('hotels', []),
-                    processed_data.get('flights', []),
-                    plan,
-                    preferences,
-                    raw_data,
-                    attempts=3,
-                    delay=1.0,
-                    module_name="住宿方案",
-                )
-            )
+            module_tasks = [
+                {
+                    "key": "accommodation",
+                    "name": "住宿方案",
+                    "critical": True,
+                    "coro": run_with_retry(
+                        self._generate_accommodation_plans,
+                        processed_data.get('hotels', []),
+                        processed_data.get('flights', []),
+                        plan,
+                        preferences,
+                        raw_data,
+                        attempts=3,
+                        delay=1.0,
+                        module_name="住宿方案",
+                    ),
+                },
+                {
+                    "key": "dining",
+                    "name": "餐饮方案",
+                    "critical": False,
+                    "coro": run_with_retry(
+                        self._generate_dining_plans,
+                        processed_data.get('restaurants', []),
+                        plan,
+                        preferences,
+                        raw_data,
+                        attempts=3,
+                        delay=1.0,
+                        module_name="餐饮方案",
+                    ),
+                },
+                {
+                    "key": "transportation",
+                    "name": "交通方案",
+                    "critical": False,
+                    "coro": run_with_retry(
+                        self._generate_transportation_plans,
+                        processed_data.get('transportation', []),
+                        plan,
+                        preferences,
+                        raw_data,
+                        attempts=3,
+                        delay=1.0,
+                        module_name="交通方案",
+                    ),
+                },
+                {
+                    "key": "attraction",
+                    "name": "景点方案",
+                    "critical": True,
+                    "coro": run_with_retry(
+                        self._generate_attraction_plans,
+                        processed_data.get('attractions', []),
+                        plan,
+                        preferences,
+                        raw_data,
+                        attempts=3,
+                        delay=1.0,
+                        module_name="景点方案",
+                    ),
+                },
+            ]
 
-            dining_task = asyncio.create_task(
-                run_with_retry(
-                    self._generate_dining_plans,
-                    processed_data.get('restaurants', []),
-                    plan,
-                    preferences,
-                    raw_data,
-                    attempts=3,
-                    delay=1.0,
-                    module_name="餐饮方案",
-                )
-            )
+            coro_list = [item["coro"] for item in module_tasks]
+            results = await asyncio.gather(*coro_list)
+            for item, result in zip(module_tasks, results):
+                item["result"] = result
+                item["data"] = result.get("data", []) if isinstance(result, dict) else []
 
-            transportation_task = asyncio.create_task(
-                run_with_retry(
-                    self._generate_transportation_plans,
-                    processed_data.get('transportation', []),
-                    plan,
-                    preferences,
-                    raw_data,
-                    attempts=3,
-                    delay=1.0,
-                    module_name="交通方案",
-                )
-            )
+            critical_failures = [
+                item["name"]
+                for item in module_tasks
+                if item["critical"] and (not item["data"])
+            ]
+            optional_failures = [
+                item["name"]
+                for item in module_tasks
+                if not item["critical"] and not item["data"]
+            ]
 
-            attraction_task = asyncio.create_task(
-                run_with_retry(
-                    self._generate_attraction_plans,
-                    processed_data.get('attractions', []),
-                    plan,
-                    preferences,
-                    raw_data,
-                    attempts=3,
-                    delay=1.0,
-                    module_name="景点方案",
-                )
-            )
+            failed_due_to_error = [
+                item["name"]
+                for item in module_tasks
+                if not item["result"].get("success", False)
+            ]
 
-            accommodation_plans, dining_plans, transportation_plans, attraction_plans = await asyncio.gather(
-                accommodation_task,
-                dining_task,
-                transportation_task,
-                attraction_task,
-            )
+            if optional_failures:
+                logger.warning(f"以下模块未生成数据，将以空结果继续: {', '.join(optional_failures)}")
+            if failed_due_to_error:
+                logger.warning(f"以下模块多次重试仍失败: {', '.join(failed_due_to_error)}")
             
-            # 检查是否有足够的数据进行组装
-            failed_modules = []
-            if not accommodation_plans:
-                failed_modules.append("住宿方案")
-            if not dining_plans:
-                failed_modules.append("餐饮方案")
-            if not transportation_plans:
-                failed_modules.append("交通方案")
-            if not attraction_plans:
-                failed_modules.append("景点方案")
-            
-            if failed_modules:
-                error_msg = f"以下模块生成失败: {', '.join(failed_modules)}"
+            if critical_failures:
+                error_msg = f"关键模块缺失: {', '.join(set(critical_failures))}"
                 logger.error(error_msg)
                 raise Exception(error_msg)
+
+            accommodation_plans = next(item["data"] for item in module_tasks if item["key"] == "accommodation")
+            dining_plans = next(item["data"] for item in module_tasks if item["key"] == "dining")
+            transportation_plans = next(item["data"] for item in module_tasks if item["key"] == "transportation")
+            attraction_plans = next(item["data"] for item in module_tasks if item["key"] == "attraction")
             
             logger.info(f"模块化生成完成 - 住宿:{len(accommodation_plans)}, 餐饮:{len(dining_plans)}, 交通:{len(transportation_plans)}, 景点:{len(attraction_plans)}")
             
