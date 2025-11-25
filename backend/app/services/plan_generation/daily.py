@@ -244,29 +244,42 @@ def build_simple_transportation_plan(
     day: int,
     date_str: str,
     transportation_data: List[Dict[str, Any]],
+    *,
+    stage: str = "local",
+    origin: str = "出发地",
+    destination: str = "目的地",
 ) -> Dict[str, Any]:
-    selection = transportation_data[:2] if transportation_data else []
-    if not selection:
-        selection = [
-            {
-                "type": "地铁",
-                "name": "地铁1号线",
-                "route": "市区→景点",
-                "duration": 30,
-                "distance": 10,
-                "price": 5,
-                "usage_tips": ["高峰期建议避开", "提前准备零钱或交通卡"],
-            }
-        ]
+    """阶段化的交通fallback，避免每天重复跨城交通"""
+    stage = stage or "local"
+    origin = origin or "出发地"
+    destination = destination or "目的地"
 
     primary_routes: List[Dict[str, Any]] = []
+    template = transportation_data[0] if transportation_data else {}
+
+    if stage == "departure":
+        primary_routes.append(_build_intercity_route(origin, destination, template))
+    elif stage == "return":
+        primary_routes.append(_build_intercity_route(destination, origin, template))
+    elif stage == "full_trip":
+        primary_routes.append(_build_intercity_route(origin, destination, template))
+        primary_routes.append(_build_intercity_route(destination, origin, template))
+    else:
+        primary_routes.append(_build_local_commute_route(destination, day))
+
     total_cost = 0.0
-    for route in selection:
+    aggregated_tips: List[str] = []
+    for route in primary_routes:
+        price = route.get("price") or route.get("cost") or 0
         try:
-            total_cost += float(route.get("price") or 0)
+            total_cost += float(price)
         except (TypeError, ValueError):
             pass
-        primary_routes.append(copy.deepcopy(route))
+        route_tips = route.get("usage_tips") or route.get("tips") or []
+        if isinstance(route_tips, list):
+            aggregated_tips.extend(route_tips)
+        elif route_tips:
+            aggregated_tips.append(str(route_tips))
 
     return {
         "day": day,
@@ -274,7 +287,7 @@ def build_simple_transportation_plan(
         "primary_routes": primary_routes,
         "backup_routes": [],
         "daily_transport_cost": total_cost,
-        "tips": ["使用默认交通建议"],
+        "tips": aggregated_tips or ["使用默认交通建议"],
     }
 
 
@@ -304,4 +317,57 @@ def build_simple_accommodation_day(
         "daily_cost": price_value,
         "accommodation_highlights": ["位置优越，交通便利"],
         "notes": ["使用默认住宿建议"],
+    }
+
+
+def _build_intercity_route(
+    origin: str,
+    destination: str,
+    template: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """根据模板构建跨城交通"""
+    template = template or {}
+    transport_type = template.get("type") or "交通"
+    template_price = template.get("price") or template.get("cost") or 0
+    template_duration = template.get("duration") or template.get("time") or 0
+    template_distance = template.get("distance") or 0
+    usage_tips = template.get("usage_tips") or ["提前抵达车站/机场，预留检票与安检时间"]
+    route_label = f"{origin}→{destination}"
+    default_name = f"{route_label}{transport_type}"
+    name = default_name
+    template_name = template.get("name")
+    if template_name:
+        normalized = template_name
+        if "→" in template_name:
+            parts = template_name.split("→")
+            if len(parts) >= 2:
+                normalized = f"{origin}→{destination}{''.join(parts[2:])}" if len(parts) > 2 else f"{origin}→{destination}"
+        if origin not in normalized or destination not in normalized:
+            normalized = f"{route_label}-{template_name}"
+        name = normalized
+    route_info = {
+        "type": transport_type,
+        "name": name,
+        "route": route_label,
+        "duration": template_duration,
+        "distance": template_distance,
+        "price": template_price,
+        "usage_tips": usage_tips,
+    }
+    return route_info
+
+
+def _build_local_commute_route(destination: str, day: int) -> Dict[str, Any]:
+    """构建目的地内的默认通勤路线"""
+    base_distance = 8 + (day % 3) * 4
+    base_duration = 25 + (day % 2) * 10
+    price = 8 + (day % 3) * 2
+    return {
+        "type": "地铁/公交",
+        "name": f"{destination}市区通勤",
+        "route": f"{destination}市区 → 当日主要景点",
+        "duration": base_duration,
+        "distance": base_distance,
+        "price": price,
+        "usage_tips": ["根据实时路况适当提前出发", "可使用本地交通卡享受折扣"],
     }

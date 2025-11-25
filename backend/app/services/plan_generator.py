@@ -205,6 +205,110 @@ class PlanGenerator:
 
         return normalized
 
+    def _extract_origin_city(self, plan: Any) -> str:
+        """获取用户出发地"""
+        for attr in ("departure", "origin", "departure_city", "origin_city"):
+            value = getattr(plan, attr, None)
+            if value:
+                return str(value)
+        return "出发地"
+
+    def _determine_transport_stage(self, day: int, total_days: int) -> str:
+        """根据天数判断交通阶段"""
+        safe_total = max(int(total_days or 0), 1)
+        if safe_total == 1:
+            return "full_trip"
+        if day <= 1:
+            return "departure"
+        if day >= safe_total:
+            return "return"
+        return "local"
+
+    def _build_transport_stage_instruction(
+        self,
+        stage: str,
+        origin_city: str,
+        destination_city: str,
+    ) -> Dict[str, str]:
+        """返回阶段标签和提示"""
+        if stage == "departure":
+            return {
+                "label": "出发前往目的地",
+                "prompt": (
+                    f"这是行程第一天，请规划从 {origin_city} 前往 {destination_city} 的跨城交通，"
+                    "包含出发/到达站点、耗时、费用和注意事项，避免生成目的地内部通勤。"
+                ),
+                "hint": "跨城出发交通",
+            }
+        if stage == "return":
+            return {
+                "label": "返程返回出发地",
+                "prompt": (
+                    f"这是行程最后一天，请规划从 {destination_city} 返回 {origin_city} 的交通，"
+                    "注明出发与抵达站点、耗时与费用，避免再描述目的地内部通勤。"
+                ),
+                "hint": "返程交通",
+            }
+        if stage == "full_trip":
+            return {
+                "label": "往返同日行程",
+                "prompt": (
+                    f"行程仅有一天，需要同时覆盖 {origin_city} ↔ {destination_city} 的往返交通，"
+                    "可在同一日程中拆分去程与返程，确保费用与耗时合理。"
+                ),
+                "hint": "当日往返交通",
+            }
+        return {
+            "label": "目的地内部通勤",
+            "prompt": (
+                f"这是行程中间天数，仅规划在 {destination_city} 本地的通勤方式（地铁/公交/打车/步行等），"
+                "避免重复描述 {origin_city} ↔ {destination_city} 的长途交通。"
+            ),
+            "hint": "本地通勤",
+        }
+
+    def _normalize_transport_stage_routes(
+        self,
+        entry: Dict[str, Any],
+        stage: str,
+        origin_city: str,
+        destination_city: str,
+    ) -> Dict[str, Any]:
+        """根据阶段重写交通路线方向，避免LLM自作主张"""
+        if not isinstance(entry, dict):
+            return entry
+
+        def _ensure_direction(route: Dict[str, Any], forward: bool):
+            if not isinstance(route, dict):
+                return
+            direction = (
+                f"{origin_city}→{destination_city}" if forward else f"{destination_city}→{origin_city}"
+            )
+            route["route"] = direction
+            label = route.get("type") or "交通"
+            route["name"] = f"{direction} {label}"
+
+        routes = entry.get("primary_routes")
+        if not isinstance(routes, list):
+            return entry
+
+        if stage == "departure":
+            for route in routes:
+                _ensure_direction(route, True)
+        elif stage == "return":
+            for route in routes:
+                _ensure_direction(route, False)
+        elif stage == "full_trip":
+            if routes:
+                _ensure_direction(routes[0], True)
+            if len(routes) > 1:
+                _ensure_direction(routes[1], False)
+        else:
+            for route in routes:
+                if isinstance(route, dict) and destination_city not in str(route.get("route", "")):
+                    route["route"] = f"{destination_city}市内通勤"
+        return entry
+
     async def _request_llm_json(
         self,
         system_prompt: str,
@@ -854,10 +958,10 @@ class PlanGenerator:
 返回日期：{plan.end_date}
 预算：{plan.budget}元
 出行方式：{plan.transportation or '未指定'}
-旅行人数：{preferences.get('travelers', 1)}人
-年龄群体：{', '.join(preferences.get('ageGroups', [])) if preferences.get('ageGroups', None) else '未指定'}
-饮食偏好：{', '.join(preferences.get('foodPreferences', [])) if preferences.get('foodPreferences', None) else '无特殊偏好'}
-饮食禁忌：{', '.join(preferences.get('dietaryRestrictions', [])) if preferences.get('dietaryRestrictions', None) else '无饮食禁忌'}
+旅行人数：{preference.get('travelers', 1)}人
+年龄群体：{', '.join(preference.get('ageGroups', [])) if preference.get('ageGroups', None) else '未指定'}
+饮食偏好：{', '.join(preference.get('foodPreferences', [])) if preference.get('foodPreferences', None) else '无特殊偏好'}
+饮食禁忌：{', '.join(preference.get('dietaryRestrictions', [])) if preference.get('dietaryRestrictions', None) else '无饮食禁忌'}
 重点偏好：{activity_pref}
 特殊要求：{plan.requirements or '无特殊要求'}
 
@@ -2270,23 +2374,34 @@ class PlanGenerator:
         """生成交通方案（按天）"""
         try:
             total_days = max(int(getattr(plan, "duration_days", 0) or 1), 1)
+            origin_city = self._extract_origin_city(plan)
+            destination_city = getattr(plan, "destination", None) or "目的地"
             notes_str = self._format_xiaohongshu_data_for_prompt(
                 raw_data.get("xiaohongshu_notes", []) if raw_data else [], plan.destination
             )
 
             def build_prompts(day: int, date_str: str, daily_budget: Optional[float]):
+                stage = self._determine_transport_stage(day, total_days)
+                stage_meta = self._build_transport_stage_instruction(
+                    stage, origin_city, destination_city
+                )
                 system_prompt = (
                     "你是一位交通规划师，请针对某一天提供详细的城市内交通安排，"
                     "包含路线、费用和注意事项。"
                 )
                 user_prompt = f"""
 请为如下旅行生成第 {day} 天（日期：{date_str or '未提供'}）的交通方案：
+- 行程阶段：{stage_meta['label']}
+- 出发地：{origin_city}
 - 目的地：{plan.destination}
 - 出行方式偏好：{plan.transportation or '未指定'}
 - 预算：{plan.budget or '未指定'}元
 - 人数：{(preferences or {}).get('travelers', getattr(plan, 'travelers', 1))}
 - 年龄群体：{', '.join((preferences or {}).get('ageGroups', [])) if (preferences or {}).get('ageGroups') else '未指定'}
 - 活动偏好：{', '.join((preferences or {}).get('activity_preference', [])) if (preferences or {}).get('activity_preference') else '未指定'}
+
+行程阶段要求：
+{stage_meta['prompt']}
 
 可用交通数据：
 {self._format_data_for_llm(transportation_data, 'transportation')}
@@ -2324,7 +2439,16 @@ class PlanGenerator:
                 entry.setdefault("backup_routes", [])
                 entry.setdefault("tips", [])
                 entry.setdefault("daily_transport_cost", 0)
-                return entry
+                stage = self._determine_transport_stage(day, total_days)
+                stage_meta = self._build_transport_stage_instruction(
+                    stage, origin_city, destination_city
+                )
+                entry.setdefault("stage", stage)
+                entry.setdefault("stage_label", stage_meta["label"])
+                entry.setdefault("stage_hint", stage_meta["hint"])
+                return self._normalize_transport_stage_routes(
+                    entry, stage, origin_city, destination_city
+                )
 
             return await generate_daily_entries(
                 module_name="交通方案",
@@ -2334,7 +2458,12 @@ class PlanGenerator:
                 build_prompts=build_prompts,
                 llm_requester=self._request_llm_json,
                 fallback_builder=lambda d, date: build_simple_transportation_plan(
-                    d, date, transportation_data
+                    d,
+                    date,
+                    transportation_data,
+                    stage=self._determine_transport_stage(d, total_days),
+                    origin=origin_city,
+                    destination=destination_city,
                 ),
                 post_process=post_process,
             )
