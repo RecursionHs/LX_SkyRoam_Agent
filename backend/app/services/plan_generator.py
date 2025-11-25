@@ -27,6 +27,53 @@ from app.services.plan_generation import (
     get_day_entry_from_list,
 )
 
+DOMESTIC_KEYWORDS_CN = {
+    "中国",
+    "大陆",
+    "内地",
+    "北京",
+    "上海",
+    "广州",
+    "深圳",
+    "杭州",
+    "南京",
+    "苏州",
+    "成都",
+    "重庆",
+    "西安",
+    "武汉",
+    "长沙",
+    "厦门",
+    "青岛",
+    "三亚",
+    "海口",
+    "拉萨",
+    "乌鲁木齐",
+}
+
+DOMESTIC_KEYWORDS_EN = {
+    "beijing",
+    "shanghai",
+    "guangzhou",
+    "shenzhen",
+    "hangzhou",
+    "suzhou",
+    "nanjing",
+    "chengdu",
+    "chongqing",
+    "wuhan",
+    "xiamen",
+    "sanya",
+    "urumqi",
+    "xi'an",
+    "xian",
+    "qingdao",
+    "haikou",
+    "lhasa",
+    "china",
+    "prc",
+}
+
 try:
     from dateutil import parser as date_parser
 except ImportError:  # pragma: no cover
@@ -88,6 +135,7 @@ class PlanGenerator:
         self.max_segment_days = getattr(settings, "PLAN_MAX_SEGMENT_DAYS", 10)
         # 延迟导入避免循环依赖
         self._data_collector = None
+        self._destination_scope_cache: Dict[str, str] = {}
     
     @property
     def data_collector(self):
@@ -124,6 +172,12 @@ class PlanGenerator:
             # logger.warning(f"_normalize_preferences(preferences)={preferences}")
             logger.info("开始生成旅行方案")
 
+            destination_scope = await self._detect_destination_scope(plan)
+            is_international = destination_scope == "international"
+            processed_data = self._adjust_processed_data_for_scope(processed_data, is_international)
+            if is_international:
+                logger.info("目的地判定为海外，将降低高德餐饮/住宿权重，优先使用小红书数据")
+
             if getattr(plan, "duration_days", 0) > self.max_segment_days:
                 logger.info(
                     f"旅行天数 {getattr(plan, 'duration_days', None)} 超过最大连续天数 {self.max_segment_days}，尝试分段生成"
@@ -157,7 +211,13 @@ class PlanGenerator:
                     logger.info("使用传统LLM策略生成方案")
                     # 设置超时
                     llm_plans = await asyncio.wait_for(
-                        self._generate_plans_with_llm(processed_data, plan, preferences, raw_data),
+                        self._generate_plans_with_llm(
+                            processed_data,
+                            plan,
+                            preferences,
+                            raw_data,
+                            is_international=is_international,
+                        ),
                         timeout=600.0  # 600秒超时
                     )
                 
@@ -171,7 +231,13 @@ class PlanGenerator:
                 logger.warning(f"LLM生成方案失败，使用传统方法: {e}")
             
             # 降级到传统方法
-            return await self._generate_traditional_plans(processed_data, plan, preferences, raw_data)
+            return await self._generate_traditional_plans(
+                processed_data,
+                plan,
+                preferences,
+                raw_data,
+                is_international=is_international,
+            )
             
         except Exception as e:
             logger.error(f"生成旅行方案失败: {e}")
@@ -204,6 +270,90 @@ class PlanGenerator:
         _set_default_list("dietaryRestrictions")
 
         return normalized
+
+    async def _detect_destination_scope(self, plan: Any) -> str:
+        """通过规则+LLM判断目的地是国内还是国外"""
+        destination = str(getattr(plan, "destination", "") or "").strip()
+        key = destination.lower()
+        if key and key in self._destination_scope_cache:
+            return self._destination_scope_cache[key]
+
+        scope = self._infer_scope_from_metadata(plan, destination)
+        if scope is None:
+            scope = await self._ask_llm_destination_scope(destination)
+        if scope is None:
+            scope = "unknown"
+
+        if key:
+            self._destination_scope_cache[key] = scope
+        return scope
+
+    def _infer_scope_from_metadata(self, plan: Any, destination: str) -> Optional[str]:
+        """优先依据显式国家字段和关键词判断"""
+        country = getattr(plan, "country", None)
+        if country:
+            normalized_country = str(country).strip().lower()
+            if normalized_country in {"china", "cn", "prc", "中华人民共和国", "中国"}:
+                return "domestic"
+            return "international"
+
+        text_lower = destination.lower()
+        if any(keyword in destination for keyword in DOMESTIC_KEYWORDS_CN):
+            return "domestic"
+        if any(keyword in text_lower for keyword in DOMESTIC_KEYWORDS_EN):
+            return "domestic"
+
+        if destination and all(ord(ch) < 128 for ch in destination) and not any(
+            keyword in text_lower for keyword in DOMESTIC_KEYWORDS_EN
+        ):
+            return "international"
+        return None
+
+    async def _ask_llm_destination_scope(self, destination: str) -> Optional[str]:
+        """使用LLM辅助判定目的地范围"""
+        if not destination:
+            return None
+        try:
+            system_prompt = (
+                "你是地理助手。请判断给定地点是否位于中国境内。"
+                "只输出 'domestic' 或 'international'，不要添加其他文字。"
+            )
+            user_prompt = (
+                f"目的地：{destination}\n"
+                "如果该地点在中国境内，输出 domestic；否则输出 international。"
+            )
+            response = await openai_client.generate_text(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=5,
+                temperature=0.0,
+            )
+            cleaned = (response or "").strip().lower()
+            if "domestic" in cleaned or "国内" in cleaned:
+                return "domestic"
+            if "international" in cleaned or "国外" in cleaned:
+                return "international"
+        except Exception as exc:
+            logger.warning(f"LLM目的地范围判定失败: {exc}")
+        return None
+
+    def _adjust_processed_data_for_scope(
+        self, processed_data: Optional[Dict[str, Any]], is_international: bool
+    ) -> Dict[str, Any]:
+        """根据目的地范围调整数据源，海外目的地不信任高德餐饮/住宿"""
+        base = processed_data or {}
+        if not is_international:
+            return base
+
+        adjusted: Dict[str, Any] = {}
+        for key, value in base.items():
+            if key in {"restaurants", "hotels", "transportation"}:
+                adjusted[key] = []
+            else:
+                adjusted[key] = value
+        data_notes = adjusted.setdefault("_data_notes", {})
+        data_notes["geo_scope"] = "international_xiaohongshu_priority"
+        return adjusted
 
     def _extract_origin_city(self, plan: Any) -> str:
         """获取用户出发地"""
@@ -336,9 +486,13 @@ class PlanGenerator:
         processed_data: Dict[str, Any],
         plan: Any,
         preferences: Optional[Dict[str, Any]],
-        raw_data: Optional[Dict[str, Any]]
+        raw_data: Optional[Dict[str, Any]],
+        *,
+        is_international: bool = False,
     ) -> List[Dict[str, Any]]:
         plans: List[Dict[str, Any]] = []
+        if is_international:
+            logger.info("传统算法：海外目的地仅使用小红书与通用经验，忽略高德餐饮/住宿数据")
         plan_types = self._get_plan_types()
         for i, plan_type in enumerate(plan_types):
             plan_data = await self._generate_single_plan(
@@ -1155,7 +1309,9 @@ class PlanGenerator:
         processed_data: Dict[str, Any],
         plan: Any,
         preferences: Optional[Dict[str, Any]] = None,
-        raw_data: Optional[Dict[str, Any]] = None
+        raw_data: Optional[Dict[str, Any]] = None,
+        *,
+        is_international: bool = False,
     ) -> List[Dict[str, Any]]:
         """使用模块化LLM生成旅行方案"""
         try:
@@ -1197,6 +1353,7 @@ class PlanGenerator:
                         plan,
                         preferences,
                         raw_data,
+                        is_international=is_international,
                         attempts=3,
                         delay=1.0,
                         module_name="住宿方案",
@@ -1212,6 +1369,7 @@ class PlanGenerator:
                         plan,
                         preferences,
                         raw_data,
+                        is_international=is_international,
                         attempts=3,
                         delay=1.0,
                         module_name="餐饮方案",
@@ -1227,6 +1385,7 @@ class PlanGenerator:
                         plan,
                         preferences,
                         raw_data,
+                        is_international=is_international,
                         attempts=3,
                         delay=1.0,
                         module_name="交通方案",
@@ -1242,6 +1401,7 @@ class PlanGenerator:
                         plan,
                         preferences,
                         raw_data,
+                        is_international=is_international,
                         attempts=3,
                         delay=1.0,
                         module_name="景点方案",
@@ -1296,7 +1456,8 @@ class PlanGenerator:
                 transportation_plans,
                 attraction_plans,
                 processed_data,
-                plan
+                plan,
+                is_international=is_international,
             )
             
             if not assembled_plans:
@@ -1310,7 +1471,13 @@ class PlanGenerator:
             logger.error(f"模块化生成方案失败: {e}")
             # 如果模块化生成失败，回退到原始方法
             logger.info("回退到原始LLM生成方法")
-            return await self._generate_plans_with_llm_fallback(processed_data, plan, preferences, raw_data)
+            return await self._generate_plans_with_llm_fallback(
+                processed_data,
+                plan,
+                preferences,
+                raw_data,
+                is_international=is_international,
+            )
 
 
     
@@ -2176,7 +2343,9 @@ class PlanGenerator:
         flights_data: List[Dict[str, Any]],
         plan: Any,
         preferences: Optional[Dict[str, Any]] = None,
-        raw_data: Optional[Dict[str, Any]] = None
+        raw_data: Optional[Dict[str, Any]] = None,
+        *,
+        is_international: bool = False,
     ) -> List[Dict[str, Any]]:
         """生成住宿方案（按天拆分）"""
         try:
@@ -2190,6 +2359,11 @@ class PlanGenerator:
                 budget_info = (
                     f"{daily_budget:.0f}元" if isinstance(daily_budget, (int, float)) else "未指定"
                 )
+                intl_hint = ""
+                if is_international:
+                    intl_hint = (
+                        "\n注意：目的地为海外，如下方航班/酒店数据为空或可能不准确，请重点依据小红书真实体验，并提醒用户抵达后再确认住宿信息。"
+                    )
                 system_prompt = (
                     "你是一位住宿规划师，请针对某一天给出航班（如有）与酒店安排，"
                     "需结合真实航班/酒店数据输出结构化结果。"
@@ -2213,6 +2387,8 @@ class PlanGenerator:
 
 小红书住宿体验：
 {notes_str}
+
+{intl_hint}
 
 请返回JSON对象，包含字段{{
   "day": {day},
@@ -2287,7 +2463,9 @@ class PlanGenerator:
         restaurants_data: List[Dict[str, Any]],
         plan: Any,
         preferences: Optional[Dict[str, Any]] = None,
-        raw_data: Optional[Dict[str, Any]] = None
+        raw_data: Optional[Dict[str, Any]] = None,
+        *,
+        is_international: bool = False,
     ) -> List[Dict[str, Any]]:
         """生成餐饮方案（按天）"""
         try:
@@ -2301,6 +2479,11 @@ class PlanGenerator:
                 budget_info = (
                     f"{daily_budget:.0f}元" if isinstance(daily_budget, (int, float)) else "未指定"
                 )
+                intl_hint = ""
+                if is_international:
+                    intl_hint = (
+                        "\n注意：目的地为海外，小红书美食体验是主要依据。若餐厅数据缺失，请结合笔记与通用经验推荐，并提示用户现场确认具体商家。"
+                    )
                 system_prompt = (
                     "你是一位美食规划师，请针对某一天制定详细的早餐/午餐/晚餐安排，"
                     "需结合真实餐厅数据与小红书体验，输出结构化结果。"
@@ -2319,6 +2502,8 @@ class PlanGenerator:
 
 小红书真实用户美食分享：
 {notes_str}
+
+{intl_hint}
 
 请返回JSON对象，字段与示例一致：{{
   "day": {day},
@@ -2369,7 +2554,9 @@ class PlanGenerator:
         transportation_data: List[Dict[str, Any]],
         plan: Any,
         preferences: Optional[Dict[str, Any]] = None,
-        raw_data: Optional[Dict[str, Any]] = None
+        raw_data: Optional[Dict[str, Any]] = None,
+        *,
+        is_international: bool = False,
     ) -> List[Dict[str, Any]]:
         """生成交通方案（按天）"""
         try:
@@ -2385,6 +2572,11 @@ class PlanGenerator:
                 stage_meta = self._build_transport_stage_instruction(
                     stage, origin_city, destination_city
                 )
+                intl_hint = ""
+                if is_international:
+                    intl_hint = (
+                        "\n注意：目的地为海外，如缺乏可靠交通数据，可根据小红书笔记和常规经验给出交通建议，并提醒用户参考当地最新信息。"
+                    )
                 system_prompt = (
                     "你是一位交通规划师，请针对某一天提供详细的城市内交通安排，"
                     "包含路线、费用和注意事项。"
@@ -2402,6 +2594,8 @@ class PlanGenerator:
 
 行程阶段要求：
 {stage_meta['prompt']}
+
+{intl_hint}
 
 可用交通数据：
 {self._format_data_for_llm(transportation_data, 'transportation')}
@@ -2479,6 +2673,8 @@ class PlanGenerator:
         plan: Any,
         preferences: Optional[Dict[str, Any]] = None,
         raw_data: Optional[Dict[str, Any]] = None,
+        *,
+        is_international: bool = False,
     ) -> List[Dict[str, Any]]:
         """按天生成景点游玩方案"""
         try:
@@ -2492,6 +2688,11 @@ class PlanGenerator:
                 budget_info = (
                     f"{daily_budget:.0f}元" if isinstance(daily_budget, (int, float)) else "未指定"
                 )
+                intl_hint = ""
+                if is_international:
+                    intl_hint = (
+                        "\n注意：目的地为海外，请优先结合小红书体验与真实景点数据，若缺少官方数据，请说明信息来源并提示用户现场确认。"
+                    )
                 system_prompt = (
                     "你是一位资深景点规划师，请针对某一天制定详细的景点游览安排，"
                     "需结合真实景点数据与小红书体验建议，输出结构化结果。"
@@ -2511,6 +2712,8 @@ class PlanGenerator:
 
 小红书体验分享：
 {notes_str}
+
+{intl_hint}
 
 请返回JSON对象，字段与示例一致：{{
   "day": {day},
@@ -2554,7 +2757,9 @@ class PlanGenerator:
         transportation_plans: List[Dict[str, Any]],
         attraction_plans: List[Dict[str, Any]],
         processed_data: Dict[str, Any],
-        plan: Any
+        plan: Any,
+        *,
+        is_international: bool = False,
     ) -> List[Dict[str, Any]]:
         """组装完整的旅行方案"""
         try:
@@ -2575,6 +2780,10 @@ class PlanGenerator:
                         "generated_at": datetime.utcnow().isoformat(),
                         "xiaohongshu_notes": processed_data.get("xiaohongshu_notes", [])
                     }
+                    if is_international:
+                        travel_plan["data_source_mode"] = "xiaohongshu_priority"
+                        notes_list = travel_plan.setdefault("notes", [])
+                        notes_list.append("目的地为海外，餐饮与住宿建议以小红书真实体验为主，建议出行前再次确认商家信息。")
                     
                     # 添加航班和酒店信息
                     travel_plan["flight"] = accommodation.get("flight", {})
@@ -2981,7 +3190,9 @@ class PlanGenerator:
         processed_data: Dict[str, Any],
         plan: Any,
         preferences: Optional[Dict[str, Any]] = None,
-        raw_data: Optional[Dict[str, Any]] = None
+        raw_data: Optional[Dict[str, Any]] = None,
+        *,
+        is_international: bool = False,
     ) -> List[Dict[str, Any]]:
         """原始LLM生成方案的回退方法"""
         try:
@@ -2990,6 +3201,10 @@ class PlanGenerator:
 请直接返回JSON格式的方案数组，不要添加任何其他文本。"""
             
             # 构建简化的用户提示
+            intl_hint = ""
+            if is_international:
+                intl_hint = "\n注意：目的地为海外，请优先参考小红书笔记，如本地数据不足，可输出一般建议并提醒用户抵达后确认。"
+
             user_prompt = f"""
 请为以下旅行需求制定方案：
 
@@ -2999,6 +3214,8 @@ class PlanGenerator:
 预算：{plan.budget}元
 
 基于提供的真实数据生成2个实用的旅行方案。
+
+{intl_hint}
 
 请返回JSON格式：
 [
