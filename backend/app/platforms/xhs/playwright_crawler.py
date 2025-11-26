@@ -235,6 +235,150 @@ class PlaywrightXHSCrawler:
             logger.error(f"二维码登录失败: {e}")
             return False
     
+    async def _is_error_page(self) -> bool:
+        """检测当前页面是否是错误页面（404、403等）"""
+        try:
+            current_url = self.page.url
+            
+            # 检查URL中是否包含错误标识
+            error_indicators = ['/404', '/403', '/error', 'error_code', 'error_msg']
+            if any(indicator in current_url.lower() for indicator in error_indicators):
+                logger.warning(f"检测到错误页面: {current_url}")
+                return True
+            
+            # 检查页面标题
+            try:
+                title = await self.page.title()
+                if title and ('错误' in title or '404' in title or '403' in title or 'error' in title.lower()):
+                    logger.warning(f"页面标题显示错误: {title}")
+                    return True
+            except Exception:
+                pass
+            
+            # 检查页面内容中是否有错误信息
+            try:
+                error_selectors = [
+                    '.error-page',
+                    '.error-container',
+                    '[class*="error"]',
+                    '[class*="404"]',
+                    '[class*="403"]',
+                    'text=页面不存在',
+                    'text=访问被拒绝',
+                    'text=error',
+                    'text=Error'
+                ]
+                for selector in error_selectors:
+                    try:
+                        element = await self.page.query_selector(selector)
+                        if element:
+                            text = await element.inner_text()
+                            if text and len(text.strip()) > 0:
+                                logger.warning(f"页面包含错误元素: {selector}")
+                                return True
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            
+            return False
+            
+        except Exception as e:
+            logger.debug(f"检测错误页面时出错: {e}")
+            return False
+    
+    async def _recover_from_error(self, keyword: str) -> bool:
+        """从错误页面恢复：回到首页、刷新、重新搜索"""
+        try:
+            logger.info(f"开始恢复流程，关键词: {keyword}")
+            
+            # 步骤1: 回到首页
+            logger.info("步骤1: 回到首页...")
+            try:
+                await self.page.goto('https://www.xiaohongshu.com/explore', timeout=10000)
+                await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
+                await self.page.wait_for_timeout(1000)  # 等待页面稳定
+                logger.info("成功回到首页")
+            except Exception as e:
+                logger.warning(f"回到首页失败: {e}，尝试刷新")
+                try:
+                    await self.page.reload(timeout=10000)
+                    await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
+                    await self.page.wait_for_timeout(1000)
+                except Exception as e2:
+                    logger.error(f"刷新页面也失败: {e2}")
+                    return False
+            
+            # 步骤2: 刷新页面
+            logger.info("步骤2: 刷新页面...")
+            try:
+                await self.page.reload(timeout=10000)
+                await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
+                await self.page.wait_for_timeout(1000)
+                logger.info("页面刷新成功")
+            except Exception as e:
+                logger.warning(f"刷新页面失败: {e}")
+            
+            # 步骤3: 检查登录状态
+            logger.info("步骤3: 检查登录状态...")
+            try:
+                if not await self.check_login_status():
+                    logger.warning("登录状态异常，尝试重新加载Cookies")
+                    await self.reload_cookies()
+                    await self.page.wait_for_timeout(1000)
+            except Exception as e:
+                logger.warning(f"检查登录状态失败: {e}")
+            
+            # 步骤4: 重新搜索关键词
+            logger.info(f"步骤4: 重新搜索关键词: {keyword}...")
+            try:
+                search_url = f"https://www.xiaohongshu.com/search_result?keyword={keyword}&type=note"
+                await self.page.goto(search_url, timeout=10000)
+                await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
+                await self.page.wait_for_timeout(1500)  # 等待搜索结果加载
+                logger.info("重新搜索成功")
+            except Exception as e:
+                logger.error(f"重新搜索失败: {e}")
+                return False
+            
+            # 步骤5: 验证是否恢复正常
+            logger.info("步骤5: 验证恢复是否成功...")
+            if await self._is_error_page():
+                logger.warning("恢复后仍然检测到错误页面")
+                return False
+            
+            # 检查是否找到搜索结果元素
+            try:
+                selectors_to_try = [
+                    'section[class*="note"]',
+                    'div[class*="note"]',
+                    'a[href*="/explore/"]'
+                ]
+                element_found = False
+                for selector in selectors_to_try:
+                    try:
+                        await self.page.wait_for_selector(selector, timeout=3000)
+                        element_found = True
+                        break
+                    except Exception:
+                        continue
+                
+                if not element_found:
+                    logger.warning("恢复后未找到搜索结果元素")
+                    # 不返回False，可能只是需要更多时间加载
+                    await self.page.wait_for_timeout(2000)
+            except Exception as e:
+                logger.warning(f"验证恢复时出错: {e}")
+            
+            logger.info("恢复流程完成")
+            # 等待一段时间让页面稳定
+            await self.page.wait_for_timeout(2000)
+            return True
+            
+        except Exception as e:
+            logger.error(f"恢复流程失败: {e}")
+            return False
+    
     async def check_login_status(self) -> bool:
         """检查登录状态"""
         try:
@@ -296,112 +440,221 @@ class PlaywrightXHSCrawler:
             logger.error(f"检查登录状态失败: {e}")
             return False
     
-    async def search_notes(self, keyword: str, max_notes: int = 20) -> List[Dict[str, Any]]:
-        """搜索笔记"""
-        try:
-            if not self.is_logged_in:
-                logger.warning("用户未登录，尝试检查登录状态")
-                if not await self.check_login_status():
-                    logger.error("用户未登录，无法获取真实数据")
-                    return []
-            
-            logger.info(f"开始搜索笔记: {keyword}")
-            
-            # 构建搜索URL
-            search_url = f"https://www.xiaohongshu.com/search_result?keyword={keyword}&type=note"
-            await self.page.goto(search_url)
-
+    async def search_notes(self, keyword: str, max_notes: int = 20, max_retries: int = 3) -> List[Dict[str, Any]]:
+        """搜索笔记，带重试机制"""
+        retry_count = 0
+        
+        while retry_count <= max_retries:
             try:
-                await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
-            except Exception:
-                await self.page.wait_for_timeout(500)
-            # 等待搜索结果加载 - 使用更通用的选择器
-            try:
-                # 尝试多种可能的选择器
-                selectors_to_try = [
-                    'section[class*="note"]',  # 新版小红书
-                    'div[class*="note"]',
-                    'a[href*="/explore/"]',
-                    '[data-v-*] a',
-                    '.feeds-page a',
-                    '.search-result a'
-                ]
+                if not self.is_logged_in:
+                    logger.warning("用户未登录，尝试检查登录状态")
+                    if not await self.check_login_status():
+                        logger.error("用户未登录，无法获取真实数据")
+                        return []
                 
-                element_found = False
-                for selector in selectors_to_try:
-                    try:
-                        await self.page.wait_for_selector(selector, timeout=5000)
-                        element_found = True
-                        logger.info(f"找到页面元素: {selector}")
-                        break
-                    except:
+                logger.info(f"开始搜索笔记: {keyword} (尝试 {retry_count + 1}/{max_retries + 1})")
+                
+                # 检测是否在错误页面
+                if await self._is_error_page():
+                    logger.warning(f"检测到错误页面，尝试恢复 (尝试 {retry_count + 1}/{max_retries + 1})")
+                    if await self._recover_from_error(keyword):
+                        retry_count += 1
+                        continue
+                    else:
+                        logger.error("恢复失败，跳过本次尝试")
+                        retry_count += 1
+                        if retry_count > max_retries:
+                            logger.error(f"达到最大重试次数 ({max_retries})，返回空结果")
+                            return []
+                        await asyncio.sleep(2)  # 等待一段时间后重试
                         continue
                 
-                if not element_found:
-                    logger.warning("未找到标准的笔记元素，尝试通用方法")
+                # 构建搜索URL
+                search_url = f"https://www.xiaohongshu.com/search_result?keyword={keyword}&type=note"
+                await self.page.goto(search_url)
 
+                try:
+                    await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
+                except Exception:
+                    await self.page.wait_for_timeout(500)
+                
+                # 再次检测错误页面
+                if await self._is_error_page():
+                    logger.warning(f"搜索后检测到错误页面，尝试恢复 (尝试 {retry_count + 1}/{max_retries + 1})")
+                    if await self._recover_from_error(keyword):
+                        retry_count += 1
+                        continue
+                    else:
+                        retry_count += 1
+                        if retry_count > max_retries:
+                            logger.error(f"达到最大重试次数 ({max_retries})，返回空结果")
+                            return []
+                        await asyncio.sleep(2)
+                        continue
+                
+                # 等待搜索结果加载 - 使用更通用的选择器
+                try:
+                    # 尝试多种可能的选择器
+                    selectors_to_try = [
+                        'section[class*="note"]',  # 新版小红书
+                        'div[class*="note"]',
+                        'a[href*="/explore/"]',
+                        '[data-v-*] a',
+                        '.feeds-page a',
+                        '.search-result a'
+                    ]
+                    
+                    element_found = False
+                    for selector in selectors_to_try:
+                        try:
+                            await self.page.wait_for_selector(selector, timeout=5000)
+                            element_found = True
+                            logger.info(f"找到页面元素: {selector}")
+                            break
+                        except:
+                            continue
+                    
+                    if not element_found:
+                        logger.warning("未找到标准的笔记元素，尝试通用方法")
+
+                        try:
+                            await self.page.wait_for_load_state('networkidle', timeout=3000)
+                        except Exception:
+                            await self.page.wait_for_timeout(500)
+                    
+                except Exception as e:
+                    logger.warning(f"等待页面元素失败: {e}")
                     try:
                         await self.page.wait_for_load_state('networkidle', timeout=3000)
                     except Exception:
                         await self.page.wait_for_timeout(500)
                 
-            except Exception as e:
-                logger.warning(f"等待页面元素失败: {e}")
-                try:
-                    await self.page.wait_for_load_state('networkidle', timeout=3000)
-                except Exception:
-                    await self.page.wait_for_timeout(500)
-            notes = []
-            scroll_count = 0
-            max_scrolls = 5
-            
-            while len(notes) < max_notes and scroll_count < max_scrolls:
-                # 提取当前页面的笔记
-                remaining_needed = max_notes - len(notes)
-                if remaining_needed <= 0:
-                    break
-                page_notes = await self._extract_notes_from_page(keyword, max_to_extract=remaining_needed)
+                # 检测是否进入错误页面
+                if await self._is_error_page():
+                    logger.warning(f"页面加载后检测到错误页面，尝试恢复 (尝试 {retry_count + 1}/{max_retries + 1})")
+                    if await self._recover_from_error(keyword):
+                        retry_count += 1
+                        continue
+                    else:
+                        retry_count += 1
+                        if retry_count > max_retries:
+                            logger.error(f"达到最大重试次数 ({max_retries})，返回空结果")
+                            return []
+                        await asyncio.sleep(2)
+                        continue
                 
-                # 去重并添加新笔记
-                for note in page_notes:
-                    if note['note_id'] not in [n['note_id'] for n in notes]:
-                        notes.append(note)
-                        if len(notes) >= max_notes:
+                notes = []
+                scroll_count = 0
+                max_scrolls = 5
+                
+                while len(notes) < max_notes and scroll_count < max_scrolls:
+                    # 再次检测错误页面
+                    if await self._is_error_page():
+                        logger.warning(f"滚动过程中检测到错误页面，尝试恢复")
+                        if not await self._recover_from_error(keyword):
+                            break  # 恢复失败，跳出循环
+                        # 重新提取笔记
+                        continue
+                    
+                    # 提取当前页面的笔记
+                    remaining_needed = max_notes - len(notes)
+                    if remaining_needed <= 0:
+                        break
+                    page_notes = await self._extract_notes_from_page(keyword, max_to_extract=remaining_needed)
+                    
+                    # 如果提取失败（可能是错误页面），尝试恢复
+                    if not page_notes and await self._is_error_page():
+                        logger.warning(f"提取笔记时检测到错误页面，尝试恢复")
+                        if await self._recover_from_error(keyword):
+                            retry_count += 1
+                            if retry_count > max_retries:
+                                logger.error(f"达到最大重试次数 ({max_retries})，返回已获取的结果")
+                                return notes[:max_notes]
+                            break  # 跳出滚动循环，重新搜索
+                        else:
                             break
-                
-                # 滚动加载更多
-                if len(notes) < max_notes:
-                    try:
-                        if await self._is_note_modal_open():
-                            await self._close_note_modal()
-                    except Exception:
-                        pass
-                    prev_count = 0
-                    try:
-                        prev_count = await self.page.evaluate('document.querySelectorAll("a[href*=\\\"/explore/\\\"]").length')
-                    except Exception:
-                        pass
-                    await self.page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-
-                    try:
-                        await self.page.wait_for_function(f'document.querySelectorAll("a[href*=\\\"/explore/\\\"]").length > {prev_count}', timeout=3000)
-                    except Exception:
+                    
+                    # 去重并添加新笔记
+                    for note in page_notes:
+                        if note['note_id'] not in [n['note_id'] for n in notes]:
+                            notes.append(note)
+                            if len(notes) >= max_notes:
+                                break
+                    
+                    # 滚动加载更多
+                    if len(notes) < max_notes:
                         try:
-                            await self.page.wait_for_load_state('networkidle', timeout=2000)
+                            if await self._is_note_modal_open():
+                                await self._close_note_modal()
                         except Exception:
-                            await self.page.wait_for_timeout(500)
-                    scroll_count += 1
+                            pass
+                        prev_count = 0
+                        try:
+                            prev_count = await self.page.evaluate('document.querySelectorAll("a[href*=\\\"/explore/\\\"]").length')
+                        except Exception:
+                            pass
+                        await self.page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+
+                        try:
+                            await self.page.wait_for_function(f'document.querySelectorAll("a[href*=\\\"/explore/\\\"]").length > {prev_count}', timeout=3000)
+                        except Exception:
+                            try:
+                                await self.page.wait_for_load_state('networkidle', timeout=2000)
+                            except Exception:
+                                await self.page.wait_for_timeout(500)
+                        scroll_count += 1
+                
+                # 成功获取到数据，返回结果
+                if notes:
+                    logger.info(f"成功获取 {min(len(notes), max_notes)} 条真实笔记数据")
+                    return notes[:max_notes]
+                else:
+                    # 没有获取到数据，可能是错误页面，尝试恢复
+                    if await self._is_error_page():
+                        logger.warning(f"未获取到数据且检测到错误页面，尝试恢复 (尝试 {retry_count + 1}/{max_retries + 1})")
+                        if await self._recover_from_error(keyword):
+                            retry_count += 1
+                            if retry_count > max_retries:
+                                logger.error(f"达到最大重试次数 ({max_retries})，返回空结果")
+                                return []
+                            continue
+                        else:
+                            retry_count += 1
+                            if retry_count > max_retries:
+                                logger.error(f"达到最大重试次数 ({max_retries})，返回空结果")
+                                return []
+                            await asyncio.sleep(2)
+                            continue
+                    else:
+                        # 没有错误页面但没有数据，可能是真的没有数据
+                        logger.warning(f"未获取到笔记数据（可能没有搜索结果）")
+                        return []
             
-            logger.info(f"成功获取 {min(len(notes), max_notes)} 条真实笔记数据")
-            return notes[:max_notes]
-            
-        except Exception as e:
-            logger.error(f"搜索笔记失败: {e}")
-            return []
+            except Exception as e:
+                logger.error(f"搜索笔记失败: {e} (尝试 {retry_count + 1}/{max_retries + 1})")
+                retry_count += 1
+                if retry_count > max_retries:
+                    logger.error(f"达到最大重试次数 ({max_retries})，返回空结果")
+                    return []
+                # 尝试恢复
+                try:
+                    if await self._is_error_page():
+                        await self._recover_from_error(keyword)
+                    await asyncio.sleep(2)
+                except Exception as recovery_error:
+                    logger.error(f"恢复过程中出错: {recovery_error}")
+        
+        logger.error(f"所有重试都失败，返回空结果")
+        return []
     
     async def _extract_notes_from_page(self, keyword: str, max_to_extract: Optional[int] = None) -> List[Dict[str, Any]]:
         """从当前页面提取笔记数据"""
         try:
+            # 检测是否是错误页面
+            if await self._is_error_page():
+                logger.warning("提取笔记时检测到错误页面，返回空列表")
+                return []
+            
             notes = []
             if max_to_extract is not None and max_to_extract <= 0:
                 return notes
@@ -648,7 +901,28 @@ class PlaywrightXHSCrawler:
                 except Exception:
                     modal_open = False
             if '/explore/' not in current_page_url and not modal_open:
+                # 检测是否是错误页面
+                if await self._is_error_page():
+                    logger.warning(f"检测到错误页面，停止获取详情: {current_page_url}")
+                    # 尝试返回搜索结果页面
+                    try:
+                        await self.page.go_back(timeout=5000)
+                        await self.page.wait_for_timeout(1000)
+                    except Exception:
+                        pass
+                    return ""
                 logger.debug(f"未进入详情页或弹窗，当前URL: {current_page_url}")
+                return ""
+            
+            # 再次检查是否是错误页面（可能是进入详情页后跳转到错误页）
+            if await self._is_error_page():
+                logger.warning(f"进入详情页后检测到错误页面，停止获取详情: {current_page_url}")
+                # 尝试返回搜索结果页面
+                try:
+                    await self.page.go_back(timeout=5000)
+                    await self.page.wait_for_timeout(1000)
+                except Exception:
+                    pass
                 return ""
             
             logger.debug(f"成功进入详情页: {current_page_url}")
