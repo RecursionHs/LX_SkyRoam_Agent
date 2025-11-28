@@ -442,6 +442,17 @@ const TravelPlanPage: React.FC = () => {
     currentPlanIdRef.current = planId;
     
     try {
+      // 处理特殊要求：如果是字符串，转换为字典格式
+      const specialRequirements = typeof preferences.requirements === 'string'
+        ? preferences.requirements.trim()
+        : '';
+      
+      const requirementsPayload = specialRequirements
+        ? { special_requirements: specialRequirements }
+        : (typeof preferences.requirements === 'object' && preferences.requirements !== null
+          ? preferences.requirements
+          : undefined);
+
       // 启动方案生成
       const response = await authFetch(buildApiUrl(API_ENDPOINTS.TRAVEL_PLAN_GENERATE(planId)), {
         method: 'POST',
@@ -455,7 +466,7 @@ const TravelPlanPage: React.FC = () => {
             dietaryRestrictions: preferences.dietaryRestrictions,
             ageGroups: preferences.ageGroups
           },
-          requirements: preferences.requirements,
+          requirements: requirementsPayload,
           num_plans: 3
         }),
       });
