@@ -192,7 +192,7 @@ class PlanScorer:
                 airline = flight.get("airline", "").lower()
                 # 知名航空公司安全性更高
                 major_airlines = ["国航", "东航", "南航", "海航", "厦航"]
-                if any(airline in airline for airline in major_airlines):
+                if airline and any(keyword in airline for keyword in major_airlines):
                     safety_factors.append(0.9)
                 else:
                     safety_factors.append(0.7)
@@ -201,13 +201,16 @@ class PlanScorer:
             hotel = self._as_dict(plan.get("hotel"))
             if hotel:
                 # 星级酒店安全性更高
-                rating = hotel.get("rating", 0)
-                if rating >= 4.0:
-                    safety_factors.append(0.9)
-                elif rating >= 3.0:
-                    safety_factors.append(0.7)
+                rating = self._safe_float(hotel.get("rating"))
+                if rating is not None:
+                    if rating >= 4.0:
+                        safety_factors.append(0.9)
+                    elif rating >= 3.0:
+                        safety_factors.append(0.7)
+                    else:
+                        safety_factors.append(0.5)
                 else:
-                    safety_factors.append(0.5)
+                    safety_factors.append(0.6)
             
             # 景点安全性
             daily_itineraries = list(self._iter_dicts(plan.get("daily_itineraries")))
@@ -239,23 +242,25 @@ class PlanScorer:
             daily_itineraries = list(self._iter_dicts(plan.get("daily_itineraries")))
             for day in daily_itineraries:
                 for attraction in self._iter_dicts(day.get("attractions")):
-                    rating = attraction.get("rating", 0)
-                    review_count = attraction.get("review_count", 0)
+                    rating = self._safe_float(attraction.get("rating"))
+                    review_count = self._safe_int(attraction.get("review_count"), 0)
                     
                     # 综合评分和评论数量
-                    if rating >= 4.5 and review_count >= 100:
+                    if rating is not None and rating >= 4.5 and review_count >= 100:
                         popularity_factors.append(0.9)
-                    elif rating >= 4.0 and review_count >= 50:
+                    elif rating is not None and rating >= 4.0 and review_count >= 50:
                         popularity_factors.append(0.7)
-                    elif rating >= 3.5:
+                    elif rating is not None and rating >= 3.5:
                         popularity_factors.append(0.5)
                     else:
                         popularity_factors.append(0.3)
             
             # 餐厅受欢迎程度
             for restaurant in self._iter_dicts(plan.get("restaurants")):
-                rating = restaurant.get("rating", 0)
-                if rating >= 4.5:
+                rating = self._safe_float(restaurant.get("rating"))
+                if rating is None:
+                    popularity_factors.append(0.4)
+                elif rating >= 4.5:
                     popularity_factors.append(0.8)
                 elif rating >= 4.0:
                     popularity_factors.append(0.6)
@@ -406,3 +411,21 @@ class PlanScorer:
             for item in value:
                 if isinstance(item, dict):
                     yield item
+
+    def _safe_float(self, value: Any, default: Optional[float] = None) -> Optional[float]:
+        """尝试将值转换为浮点数，失败则返回默认值"""
+        try:
+            if value is None or value == "":
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _safe_int(self, value: Any, default: int = 0) -> int:
+        """尝试将值转换为整数，失败则返回默认值"""
+        try:
+            if value is None or value == "":
+                return default
+            return int(value)
+        except (TypeError, ValueError):
+            return default
