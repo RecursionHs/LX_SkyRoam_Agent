@@ -162,7 +162,7 @@ class AgentService:
             ("attractions", lambda: self.data_collector.collect_attraction_data(plan.destination)),
             ("weather", lambda: self.data_collector.collect_weather_data(plan.destination, plan.start_date, plan.end_date)),
             ("restaurants", lambda: self.data_collector.collect_restaurant_data(plan.destination)),
-            ("xiaohongshu_notes", lambda: self.data_collector.collect_xiaohongshu_data(plan.destination)),
+            ("xiaohongshu_notes", lambda: self.data_collector.collect_xiaohongshu_data(plan.destination, plan.start_date, plan.end_date)),
         ]
         if plan.departure:
             task_specs.insert(0, ("flights", lambda: self.data_collector.collect_flight_data(plan.departure, plan.destination, plan.start_date, plan.end_date)))

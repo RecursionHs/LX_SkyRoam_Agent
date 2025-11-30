@@ -814,7 +814,7 @@ class DataCollector:
         interval_seconds = 1
 
         # 并发启动小红书数据收集任务（不受 MCP 并发限制）
-        xhs_task = asyncio.create_task(self.collect_xiaohongshu_data(destination))
+        xhs_task = asyncio.create_task(self.collect_xiaohongshu_data(destination, start_date, end_date))
 
         try:
             data["flights"] = await self.collect_flight_data(departure, destination, start_date, end_date)
@@ -1310,21 +1310,45 @@ class DataCollector:
         except Exception as e:
             logger.warning(f"高德地图景点数据收集失败: {e}")
     
-    async def collect_xiaohongshu_data(self, destination: str) -> List[Dict[str, Any]]:
+    async def collect_xiaohongshu_data(
+        self, 
+        destination: str, 
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
         """
         收集小红书数据（通过API服务）
         
         Args:
             destination: 目的地名称
+            start_date: 旅行开始日期（可选，用于计算天数）
+            end_date: 旅行结束日期（可选，用于计算天数）
             
         Returns:
             List[Dict[str, Any]]: 小红书笔记数据列表
         """
         try:
-            logger.info(f"🔍 开始收集小红书数据: {destination}，检索内容：{destination}旅游攻略")
+            # 根据旅行天数自适应计算爬取数量
+            days = None
+            if start_date and end_date:
+                try:
+                    days = (end_date - start_date).days + 1
+                    if days <= 0:
+                        days = None
+                except Exception:
+                    days = None
+            
+            if days is not None and days > 0:
+                # 每天2-3条笔记，最少3条，最多24条
+                limit = max(3, min(24, days * 2 + 1))
+                logger.info(f"🔍 开始收集小红书数据: {destination}，旅行天数: {days}天，检索数量: {limit}条，检索内容：{destination}旅游攻略")
+            else:
+                # 默认12条
+                limit = 12
+                logger.info(f"🔍 开始收集小红书数据: {destination}，检索内容：{destination}旅游攻略（默认数量: {limit}条）")
             
             # 使用小红书API客户端搜索笔记
-            response = await self.xhs_client.search_notes(f"{destination}旅游攻略", limit=12)
+            response = await self.xhs_client.search_notes(f"{destination}旅游攻略", limit=limit)
             
             if not response or response.get("status") != "success":
                 logger.error(f"❌ 小红书API调用失败: {response}")
