@@ -9,21 +9,23 @@ import { authFetch } from '../../utils/auth';
 const { Title, Paragraph, Text } = Typography;
 
 interface Destination {
-  id: number;
+  id?: number | null; // 动态生成的目的地可能没有ID
   name: string;
-  country: string;
-  city?: string;
-  region?: string;
-  latitude?: number;
-  longitude?: number;
-  timezone?: string;
-  description?: string;
-  highlights?: string[];
-  best_time_to_visit?: string;
+  country?: string | null;
+  city?: string | null;
+  region?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  timezone?: string | null;
+  description?: string | null;
+  highlights?: string[] | null;
+  best_time_to_visit?: string | null;
   popularity_score?: number;
-  cost_level?: string; // low, medium, high
-  images?: string[];
+  cost_level?: string | null; // low, medium, high
+  images?: string[] | null;
   continent?: string; // 新增：洲别（亚洲、欧洲、美洲、大洋洲、非洲）
+  plan_count?: number; // 来自旅行计划的数量
+  source?: 'database' | 'travel_plans'; // 数据来源
 }
 
 interface TravelPlan {
@@ -58,6 +60,33 @@ const DEFAULT_DESTINATIONS: Destination[] = [
   { id: 13, name: '巴黎', country: '法国', city: '巴黎', region: '法兰西岛', continent: '欧洲', best_time_to_visit: '4-6月、9-10月', cost_level: '高', popularity_score: 96, description: '浪漫之都，艺术与建筑的殿堂。', highlights: ['埃菲尔铁塔', '卢浮宫', '凯旋门', '塞纳河', '巴黎圣母院'], images: ['https://kimi-web-img.moonshot.cn/img/res.cloudinary.com/f2f3ad305fff24c7348dc0d5654d0dfb9d8a9e8e'] },
   
 ];
+
+// 根据国家推断大洲
+const getContinentFromCountry = (country?: string | null): string | undefined => {
+  if (!country) return undefined;
+  const c = country.toLowerCase();
+  // 亚洲
+  if (['中国', '日本', '韩国', '印度', '泰国', '新加坡', '马来西亚', '印度尼西亚', '菲律宾', '越南', '缅甸', '柬埔寨', '老挝', '蒙古', '尼泊尔', '不丹', '斯里兰卡', '马尔代夫', '孟加拉国', '巴基斯坦', '阿富汗', '伊朗', '伊拉克', '沙特阿拉伯', '阿联酋', '土耳其', '以色列', '约旦', '黎巴嫩', '叙利亚', '也门', '阿曼', '科威特', '卡塔尔', '巴林'].some(n => c.includes(n.toLowerCase()))) {
+    return '亚洲';
+  }
+  // 欧洲
+  if (['英国', '法国', '德国', '意大利', '西班牙', '葡萄牙', '荷兰', '比利时', '瑞士', '奥地利', '希腊', '瑞典', '挪威', '丹麦', '芬兰', '冰岛', '爱尔兰', '波兰', '捷克', '匈牙利', '罗马尼亚', '保加利亚', '克罗地亚', '塞尔维亚', '俄罗斯'].some(n => c.includes(n.toLowerCase()))) {
+    return '欧洲';
+  }
+  // 美洲
+  if (['美国', '加拿大', '墨西哥', '巴西', '阿根廷', '智利', '秘鲁', '哥伦比亚', '委内瑞拉', '厄瓜多尔', '玻利维亚', '巴拉圭', '乌拉圭', '古巴', '牙买加', '巴哈马', '哥斯达黎加', '巴拿马'].some(n => c.includes(n.toLowerCase()))) {
+    return '美洲';
+  }
+  // 大洋洲
+  if (['澳大利亚', '新西兰', '斐济', '巴布亚新几内亚', '汤加', '萨摩亚'].some(n => c.includes(n.toLowerCase()))) {
+    return '大洋洲';
+  }
+  // 非洲
+  if (['南非', '埃及', '肯尼亚', '摩洛哥', '坦桑尼亚', '埃塞俄比亚', '加纳', '尼日利亚', '塞内加尔', '毛里求斯'].some(n => c.includes(n.toLowerCase()))) {
+    return '非洲';
+  }
+  return undefined;
+};
 
 const DestinationsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -103,11 +132,22 @@ const DestinationsPage: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await authFetch(buildApiUrl(API_ENDPOINTS.DESTINATIONS));
+        const res = await authFetch(buildApiUrl(`${API_ENDPOINTS.DESTINATIONS}?include_from_plans=true&limit=200`));
       if (!res.ok) throw new Error(`加载目的地失败 (${res.status})`);
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
-      setDestinations(list.length ? list : DEFAULT_DESTINATIONS);
+      // 为没有 continent 的目的地推断大洲
+      const enrichedList = list.map((d: Destination) => ({
+        ...d,
+        continent: d.continent || getContinentFromCountry(d.country),
+        // 为动态生成的目的地生成一个临时ID（基于名称的哈希）
+        id: d.id || (d.name ? Math.abs(d.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) : 0)
+      }));
+      // 合并默认目的地（如果数据库中没有）
+      const missingDefaults = DEFAULT_DESTINATIONS.filter(d => 
+        !enrichedList.some(ed => ed.name.toLowerCase() === d.name.toLowerCase())
+      );
+      setDestinations(enrichedList.length ? [...enrichedList, ...missingDefaults] : DEFAULT_DESTINATIONS);
     } catch (e: any) {
       setError(e.message || '加载目的地失败，显示默认热门目的地');
       setDestinations(DEFAULT_DESTINATIONS);
@@ -170,7 +210,10 @@ const DestinationsPage: React.FC = () => {
 
     // 1. 按大洲筛选
     if (filterContinent !== '全部') {
-      results = results.filter(d => d.continent === filterContinent);
+      results = results.filter(d => {
+        const continent = d.continent || getContinentFromCountry(d.country);
+        return continent === filterContinent;
+      });
     }
 
     // 2. 按关键字筛选
@@ -183,12 +226,6 @@ const DestinationsPage: React.FC = () => {
 
     return results;
   }, [destinations, q, filterContinent]);
-
-  const coverImage = (d: Destination) => {
-    const imgs = d.images || [];
-    const first = imgs.find((u) => typeof u === 'string' && u.length > 0);
-    return first;
-  };
 
   const openPlansModal = async (d: Destination) => {
     setActiveDest(d);
@@ -268,7 +305,6 @@ const DestinationsPage: React.FC = () => {
         <Title level={4} style={{ marginBottom: 12 }}>热门推荐目的地</Title>
         <Carousel autoplay dots>
           {DEFAULT_DESTINATIONS.filter(d => (d.popularity_score || 0) >= 92).map((d) => {
-            const cover = (d.images && d.images[0]) || undefined;
             return (
               <div key={d.id}>
                 <Row gutter={16} align="middle">
@@ -289,7 +325,7 @@ const DestinationsPage: React.FC = () => {
                   <Col xs={24} md={14}>
                     <Space direction="vertical" size={6} style={{ width: '100%' }}>
                       <Title level={4} style={{ margin: 0 }}>{d.name}</Title>
-                      <Text type="secondary"><EnvironmentOutlined /> {d.country}{d.city ? ` · ${d.city}` : ''}</Text>
+                      <Text type="secondary"><EnvironmentOutlined /> {d.country || '未知'}{d.city ? ` · ${d.city}` : ''}</Text>
                       {d.best_time_to_visit && <Text type="secondary"><CalendarOutlined /> 最佳旅行时间：{d.best_time_to_visit}</Text>}
                       {d.highlights && d.highlights.length > 0 && (
                         <>
@@ -301,7 +337,10 @@ const DestinationsPage: React.FC = () => {
                       )}
                       <Space>
                         <Button type="primary" onClick={() => openPlansModal(d)}>查看相关方案</Button>
-                        <Button onClick={() => setFilterContinent(d.continent || '全部')}>同洲筛选</Button>
+                        <Button onClick={() => {
+                          const continent = d.continent || getContinentFromCountry(d.country) || '全部';
+                          setFilterContinent(continent);
+                        }}>同洲筛选</Button>
                       </Space>
                     </Space>
                   </Col>
@@ -322,7 +361,6 @@ const DestinationsPage: React.FC = () => {
       ) : (
         <Row gutter={[16, 16]}>
           {filteredDestinations.map((d) => {
-            const cover = coverImage(d);
             return (
               <Col xs={24} sm={12} md={8} lg={6} key={d.id}>
                 <Card
@@ -348,12 +386,14 @@ const DestinationsPage: React.FC = () => {
                   <Space direction="vertical" size={6} style={{ width: '100%' }}>
                     <Title level={4} style={{ margin: 0 }}>{d.name}</Title>
                     <Text>
-                      <EnvironmentOutlined /> {d.country}{d.city ? ` · ${d.city}` : ''}
+                      <EnvironmentOutlined /> {d.country || '未知'}{d.city ? ` · ${d.city}` : ''}
                     </Text>
                     <Space wrap>
                       {d.region && <Tag color={regionColor(d.region)}>{d.region}</Tag>}
                       {d.cost_level && <Tag color={costLevelColor(d.cost_level)}>消费：{d.cost_level}</Tag>}
                       {typeof d.popularity_score === 'number' && <Tag color="blue">热度：{Math.round(d.popularity_score)}</Tag>}
+                      {d.plan_count && d.plan_count > 0 && <Tag color="green">{d.plan_count} 个方案</Tag>}
+                      {d.source === 'travel_plans' && <Tag color="orange">热门</Tag>}
                     </Space>
                     {d.best_time_to_visit && (
                       <Text><CalendarOutlined /> 最佳旅行时间：{d.best_time_to_visit}</Text>
