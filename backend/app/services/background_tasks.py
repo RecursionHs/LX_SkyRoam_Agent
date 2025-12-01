@@ -189,12 +189,12 @@ class BackgroundTaskManager:
                 if disk_percent > 90:
                     logger.warning(f"磁盘使用率过高: {disk_percent}%")
                 
-                # 每10分钟执行一次
-                await asyncio.sleep(600)
+                # 每30分钟执行一次
+                await asyncio.sleep(3 * 600)
                 
             except Exception as e:
                 logger.error(f"监控任务失败: {e}")
-                await asyncio.sleep(600)  # 10分钟后重试
+                await asyncio.sleep(3 * 600)  # 30分钟后重试
     
     async def _check_database(self):
         """检查数据库连接"""
