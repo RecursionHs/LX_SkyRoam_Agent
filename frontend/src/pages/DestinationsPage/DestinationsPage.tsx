@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Card, Row, Col, Typography, Input, Space, Tag, Image, Modal, List, Button, Spin, Empty, Carousel, Select, DatePicker } from 'antd';
 import { GlobalOutlined, SearchOutlined, EnvironmentOutlined, CalendarOutlined, DollarOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -122,10 +122,17 @@ const DestinationsPage: React.FC = () => {
   const [plansLoading, setPlansLoading] = useState<boolean>(false);
   const [plans, setPlans] = useState<TravelPlan[]>([]);
   const [planQ, setPlanQ] = useState<string>('');
+  const planQRef = useRef<string>(''); // 使用 ref 存储最新的 planQ，避免闭包问题
+  const [planQInput, setPlanQInput] = useState<string>(''); // 本地输入状态，避免输入时触发过滤
   const [planMinScore, setPlanMinScore] = useState<number | undefined>(undefined);
   const [planDateRange, setPlanDateRange] = useState<any[]>([]);
   const [planStatus, setPlanStatus] = useState<string>('全部');
   const [planSource, setPlanSource] = useState<'全部' | 'private' | 'public'>('全部');
+  
+  // 同步 planQ 到 ref
+  useEffect(() => {
+    planQRef.current = planQ;
+  }, [planQ]);
 
   useEffect(() => {
     const fetchDestinations = async () => {
@@ -158,50 +165,120 @@ const DestinationsPage: React.FC = () => {
     fetchDestinations();
   }, []);
 
+  // 获取方案列表的函数
+  const fetchPlansData = useCallback(async (keywordOverride?: string) => {
+    if (!activeDest) return;
+    const d = activeDest;
+    setPlansLoading(true);
+    try {
+      let listPrivate: TravelPlan[] = [];
+      let listPublic: TravelPlan[] = [];
+
+      // 优先使用传入的 keyword，如果没有传入则使用 ref 中的最新值，避免闭包问题
+      const keywordToUse = keywordOverride !== undefined ? keywordOverride : planQRef.current;
+      
+      // 构建查询参数（私有方案）
+      const buildPrivateParams = (baseParams: string) => {
+        const params = new URLSearchParams(baseParams);
+        if (keywordToUse && keywordToUse.trim()) {
+          params.set('keyword', keywordToUse.trim());
+        }
+        if (typeof planMinScore === 'number') {
+          params.set('min_score', String(planMinScore));
+        }
+        if (Array.isArray(planDateRange) && planDateRange.length === 2 && planDateRange[0] && planDateRange[1]) {
+          const fromStr = dayjs(planDateRange[0]).format('YYYY-MM-DD');
+          const toStr = dayjs(planDateRange[1]).format('YYYY-MM-DD');
+          if (fromStr) params.set('travel_from', fromStr);
+          if (toStr) params.set('travel_to', toStr);
+        }
+        if (planStatus && planStatus !== '全部') {
+          params.set('status', planStatus);
+        }
+        return params.toString();
+      };
+
+      // 构建查询参数（公开方案，支持 destination 参数）
+      const buildPublicParams = (baseParams: string) => {
+        const params = new URLSearchParams(baseParams);
+        const destName = (d.name || '').trim();
+        if (destName) {
+          params.set('destination', destName);
+        }
+        if (keywordToUse && keywordToUse.trim()) {
+          params.set('keyword', keywordToUse.trim());
+        }
+        if (typeof planMinScore === 'number') {
+          params.set('min_score', String(planMinScore));
+        }
+        if (Array.isArray(planDateRange) && planDateRange.length === 2 && planDateRange[0] && planDateRange[1]) {
+          const fromStr = dayjs(planDateRange[0]).format('YYYY-MM-DD');
+          const toStr = dayjs(planDateRange[1]).format('YYYY-MM-DD');
+          if (fromStr) params.set('travel_from', fromStr);
+          if (toStr) params.set('travel_to', toStr);
+        }
+        return params.toString();
+      };
+
+      if (planSource === 'private' || planSource === '全部') {
+        const resPrivate = await authFetch(buildApiUrl(`${API_ENDPOINTS.TRAVEL_PLANS}?${buildPrivateParams('skip=0&limit=100')}`));
+        if (!resPrivate.ok) throw new Error(`加载个人方案失败 (${resPrivate.status})`);
+        const dataPrivate = await resPrivate.json();
+        listPrivate = Array.isArray(dataPrivate?.plans) ? dataPrivate.plans : (Array.isArray(dataPrivate) ? dataPrivate : []);
+      }
+
+      if (planSource === 'public' || planSource === '全部') {
+        const resPublic = await fetch(buildApiUrl(`${API_ENDPOINTS.TRAVEL_PLANS_PUBLIC}?${buildPublicParams('skip=0&limit=100')}`));
+        if (!resPublic.ok) throw new Error(`加载公开方案失败 (${resPublic.status})`);
+        const dataPublic = await resPublic.json();
+        listPublic = Array.isArray(dataPublic?.plans) ? dataPublic.plans : (Array.isArray(dataPublic) ? dataPublic : []);
+      }
+
+      // 过滤逻辑：
+      // 1. 公开方案：后端已经根据 destination 和 keyword 进行了过滤，前端不需要再次过滤
+      // 2. 私有方案：
+      //    - 如果有关键词搜索：后端已经根据关键词过滤，前端不再进行目的地过滤（避免过度过滤）
+      //    - 如果没有关键词搜索：前端需要根据目的地名称进行过滤
+      const targetName = (d.name || '').trim().toLowerCase();
+      const cityName = (d.city || '').trim().toLowerCase();
+      const matchByDestination = (p: TravelPlan) => {
+        const dest = (p.destination || '').toLowerCase();
+        return dest.includes(targetName) || (!!cityName && dest.includes(cityName));
+      };
+
+      // 私有方案：有关键词搜索时不进行目的地过滤，没有关键词搜索时才过滤
+      const matchedPrivate = (keywordToUse && keywordToUse.trim()) 
+        ? listPrivate.map((p) => ({ ...p, source: 'private' as const }))
+        : listPrivate.filter(matchByDestination).map((p) => ({ ...p, source: 'private' as const }));
+      
+      // 公开方案不需要过滤（后端已经根据 destination 参数过滤了）
+      const matchedPublic = listPublic.map((p) => ({ ...p, source: 'public' as const }));
+      
+      // 合并并去重
+      const mergedMap = new Map<number, TravelPlan>();
+      [...matchedPublic, ...matchedPrivate].forEach((p) => mergedMap.set(p.id, p));
+      setPlans(Array.from(mergedMap.values()));
+    } catch (e) {
+      setPlans([]);
+    } finally {
+      setPlansLoading(false);
+    }
+  }, [activeDest, planMinScore, planDateRange, planStatus, planSource]);
+
   // 根据来源和当前目的地重新获取方案列表（组件内部）
   useEffect(() => {
-    if (!modalOpen || !activeDest) return;
-    const d = activeDest;
-    const fetchData = async () => {
-      setPlansLoading(true);
-      try {
-        let listPrivate: TravelPlan[] = [];
-        let listPublic: TravelPlan[] = [];
-
-        if (planSource === 'private' || planSource === '全部') {
-          const resPrivate = await authFetch(buildApiUrl(`${API_ENDPOINTS.TRAVEL_PLANS}?skip=0&limit=100`));
-          if (!resPrivate.ok) throw new Error(`加载个人方案失败 (${resPrivate.status})`);
-          const dataPrivate = await resPrivate.json();
-          listPrivate = Array.isArray(dataPrivate?.plans) ? dataPrivate.plans : (Array.isArray(dataPrivate) ? dataPrivate : []);
-        }
-
-        if (planSource === 'public' || planSource === '全部') {
-          const resPublic = await fetch(buildApiUrl(`${API_ENDPOINTS.TRAVEL_PLANS_PUBLIC}?skip=0&limit=100`));
-          if (!resPublic.ok) throw new Error(`加载公开方案失败 (${resPublic.status})`);
-          const dataPublic = await resPublic.json();
-          listPublic = Array.isArray(dataPublic?.plans) ? dataPublic.plans : (Array.isArray(dataPublic) ? dataPublic : []);
-        }
-
-        const targetName = (d.name || '').trim().toLowerCase();
-        const cityName = (d.city || '').trim().toLowerCase();
-        const matchByDestination = (p: TravelPlan) => {
-          const dest = (p.destination || '').toLowerCase();
-          return dest.includes(targetName) || (!!cityName && dest.includes(cityName));
-        };
-
-        const matchedPrivate = listPrivate.filter(matchByDestination).map((p) => ({ ...p, source: 'private' as const }));
-        const matchedPublic = listPublic.filter(matchByDestination).map((p) => ({ ...p, source: 'public' as const }));
-        const mergedMap = new Map<number, TravelPlan>();
-        [...matchedPublic, ...matchedPrivate].forEach((p) => mergedMap.set(p.id, p));
-        setPlans(Array.from(mergedMap.values()));
-      } catch (e) {
-        setPlans([]);
-      } finally {
-        setPlansLoading(false);
+    if (!modalOpen || !activeDest) {
+      // 弹窗关闭时重置搜索状态
+      if (!modalOpen) {
+        setPlanQ('');
+        setPlanQInput('');
       }
-    };
-    fetchData();
-  }, [modalOpen, activeDest, planSource]);
+      return;
+    }
+    // 初始加载和筛选条件变化时自动获取（使用当前的 planQ）
+    // 注意：关键词搜索通过 onSearch 手动触发，不在这里自动触发
+    fetchPlansData();
+  }, [modalOpen, activeDest, planSource, planMinScore, planDateRange, planStatus, fetchPlansData]);
 
   const filteredDestinations = useMemo(() => {
     const keyword = q.trim().toLowerCase();
@@ -231,48 +308,17 @@ const DestinationsPage: React.FC = () => {
     setActiveDest(d);
     setModalOpen(true);
     setPlansLoading(true);
-    setPlanQ(d.name || '');
+    const destName = d.name || '';
+    setPlanQ(destName);
+    setPlanQInput(destName);
     setPlanMinScore(undefined);
     setPlanDateRange([]);
     setPlanStatus('全部');
     // 移除这里的请求，改为在 useEffect 中根据来源实时获取
   };
 
-  const filteredPlans = useMemo(() => {
-    const keyword = planQ.trim().toLowerCase();
-    let result = plans;
-
-    if (keyword) {
-      result = result.filter((p) => {
-        const hay = [p.title, p.description, p.status].filter(Boolean).join(' ').toLowerCase();
-        return hay.includes(keyword);
-      });
-    }
-
-    if (typeof planMinScore === 'number') {
-      result = result.filter((p) => typeof p.score === 'number' && (p.score as number) >= planMinScore);
-    }
-
-    if (planStatus && planStatus !== '全部') {
-      result = result.filter((p) => p.status === planStatus);
-    }
-
-    if (planSource && planSource !== '全部') {
-      result = result.filter((p) => (p as any).source === planSource);
-    }
-
-    if (Array.isArray(planDateRange) && planDateRange.length === 2 && planDateRange[0] && planDateRange[1]) {
-      const [r0, r1] = planDateRange;
-      result = result.filter((p) => {
-        const ds = dayjs(p.start_date);
-        const de = dayjs(p.end_date);
-        if (!ds.isValid() || !de.isValid()) return false;
-        return !ds.isAfter(r1, 'day') && !de.isBefore(r0, 'day');
-      });
-    }
-
-    return result;
-  }, [plans, planQ, planMinScore, planStatus, planSource, planDateRange]);
+  // 不再需要客户端过滤，所有过滤都在后端完成
+  const filteredPlans = plans;
 
   return (
     <div className="destinations-page" style={{ maxWidth: '1200px', margin: '0 auto' }}>
@@ -420,9 +466,16 @@ const DestinationsPage: React.FC = () => {
               placeholder="关键词（标题/描述/状态）"
               allowClear
               style={{ width: 280 }}
-              value={planQ}
-              onChange={(e) => setPlanQ(e.target.value)}
-              onSearch={(v) => setPlanQ(v.trim())}
+              value={planQInput}
+              onChange={(e) => setPlanQInput(e.target.value)}
+              onSearch={(v) => {
+                const trimmed = (v || planQInput).trim();
+                setPlanQ(trimmed);
+                setPlanQInput(trimmed);
+                // 点击搜索时调用后端接口
+                fetchPlansData(trimmed);
+              }}
+              enterButton
             />
             <Select
               placeholder="评分"
@@ -467,7 +520,14 @@ const DestinationsPage: React.FC = () => {
                 { value: 'public', label: '仅公开' },
               ]}
             />
-            <Button onClick={() => { setPlanQ(''); setPlanMinScore(undefined); setPlanDateRange([]); setPlanStatus('全部'); setPlanSource('全部'); }}>
+            <Button onClick={() => { 
+              setPlanQ(''); 
+              setPlanQInput(''); 
+              setPlanMinScore(undefined); 
+              setPlanDateRange([]); 
+              setPlanStatus('全部'); 
+              setPlanSource('全部'); 
+            }}>
               重置
             </Button>
           </Space>
