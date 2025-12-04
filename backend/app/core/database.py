@@ -2,14 +2,22 @@
 数据库配置和连接管理
 """
 
-from sqlalchemy import create_engine, MetaData
+from sqlalchemy import create_engine, MetaData, select, insert
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 import asyncio
 from loguru import logger
 
 from app.core.config import settings
+from app.core.db_seed_data import (
+    DEFAULT_USERS,
+    DESTINATIONS,
+    ATTRACTIONS,
+    RESTAURANTS,
+    ACTIVITY_TYPES,
+)
 
 # 每个事件循环维护独立的异步引擎与Session工厂，避免跨循环复用
 _engines_by_loop = {}
@@ -120,8 +128,8 @@ async def init_db():
         
         logger.info("✅ 数据库表创建成功")
         
-        # 创建默认用户数据
-        await create_default_users()
+        # 创建基础数据
+        await seed_initial_data()
         
     except Exception as e:
         logger.error(f"❌ 数据库初始化失败: {e}")
@@ -175,46 +183,15 @@ async def create_database_if_not_exists():
 async def create_default_users():
     """创建默认用户数据"""
     try:
-        from sqlalchemy import text
-        
+        from app.models.user import User
+
         engine = _get_async_engine_for_current_loop()
         async with engine.begin() as conn:
-            # 检查用户表是否存在数据
-            result = await conn.execute(text("SELECT COUNT(*) FROM users"))
-            user_count = result.scalar()
-            
-            # 检查是否存在ID=1的用户
-            result = await conn.execute(text("SELECT id FROM users WHERE id = 1"))
-            user_1_exists = result.fetchone()
-            
-            if not user_1_exists:
-                # 创建ID=1的默认用户
-                await conn.execute(text("""
-                    INSERT INTO users (id, username, email, full_name, hashed_password, role, is_verified, is_active, created_at, updated_at) 
-                    VALUES 
-                    (1, 'admin', 'admin@lxai.com', '系统管理员', '$2b$12$w8GM49ePhxbCzT6qWNnvHOx/VHCh0MOmbFjUpFUG8Y4OTDmeM0Iq.', 'admin', true, true, NOW(), NOW())
-                    ON CONFLICT (id) DO NOTHING
-                """))
-                logger.info("✅ ID=1的默认用户创建成功")
-            else:
-                logger.info("✅ ID=1的用户已存在")
-                
-            # 检查是否存在ID=2的用户
-            result = await conn.execute(text("SELECT id FROM users WHERE id = 2"))
-            user_2_exists = result.fetchone()
-            
-            if not user_2_exists:
-                # 创建ID=2的演示用户
-                await conn.execute(text("""
-                    INSERT INTO users (id, username, email, full_name, hashed_password, role, is_verified, is_active, created_at, updated_at) 
-                    VALUES 
-                    (2, 'demo_user', 'demo@lxai.com', '演示用户', '$2b$12$w8GM49ePhxbCzT6qWNnvHOx/VHCh0MOmbFjUpFUG8Y4OTDmeM0Iq.', 'user', true, true, NOW(), NOW())
-                    ON CONFLICT (id) DO NOTHING
-                """))
-                logger.info("✅ ID=2的演示用户创建成功")
-            else:
-                logger.info("✅ ID=2的用户已存在")
-                
+            user_table = User.__table__
+            for user in DEFAULT_USERS:
+                stmt = pg_insert(user_table).values(user).on_conflict_do_nothing(index_elements=["id"])
+                await conn.execute(stmt)
+            logger.info("✅ 默认用户已就绪")
     except Exception as e:
         logger.warning(f"⚠️ 默认用户创建失败: {e}")
         # 如果创建失败，可能是权限问题或用户已存在，继续执行
@@ -244,3 +221,121 @@ class async_session:
                 await self._session.commit()
         finally:
             await self._session.close()
+
+
+async def seed_initial_data():
+    """插入基础演示数据"""
+    # 先确保用户存在
+    await create_default_users()
+    destination_map = await create_default_destinations()
+    await create_default_attractions(destination_map)
+    await create_default_restaurants(destination_map)
+    await create_default_activity_types()
+
+
+async def create_default_destinations():
+    """创建示例目的地，返回名称到ID的映射"""
+    from app.models.destination import Destination
+
+    engine = _get_async_engine_for_current_loop()
+    destinations_table = Destination.__table__
+    inserted = {}
+
+    async with engine.begin() as conn:
+        for dest in DESTINATIONS:
+            stmt = select(destinations_table.c.id).where(
+                destinations_table.c.name == dest["name"],
+                destinations_table.c.country == dest["country"],
+            )
+            result = await conn.execute(stmt)
+            existing_id = result.scalar_one_or_none()
+            if existing_id:
+                inserted[dest["name"]] = existing_id
+                continue
+
+            insert_stmt = insert(destinations_table).values(dest).returning(destinations_table.c.id)
+            new_id_result = await conn.execute(insert_stmt)
+            new_id = new_id_result.scalar_one()
+            inserted[dest["name"]] = new_id
+
+    logger.info(f"✅ 目的地数据已准备，共 {len(inserted)} 条")
+    return inserted
+
+
+async def create_default_attractions(destination_map):
+    """创建示例景点"""
+    from app.models.destination import Attraction
+
+    engine = _get_async_engine_for_current_loop()
+    attractions_table = Attraction.__table__
+    created = 0
+
+    async with engine.begin() as conn:
+        for attraction in ATTRACTIONS:
+            record = dict(attraction)
+            dest_name = record.pop("destination_name")
+            destination_id = destination_map.get(dest_name)
+            if not destination_id:
+                logger.warning(f"⚠️ 未找到目的地 {dest_name}，跳过景点 {record['name']}")
+                continue
+
+            stmt = select(attractions_table.c.id).where(
+                attractions_table.c.name == record["name"],
+                attractions_table.c.destination_id == destination_id,
+            )
+            result = await conn.execute(stmt)
+            if result.scalar_one_or_none():
+                continue
+
+            record["destination_id"] = destination_id
+            await conn.execute(insert(attractions_table).values(record))
+            created += 1
+
+    logger.info(f"✅ 景点数据已准备，新增 {created} 条")
+
+
+async def create_default_restaurants(destination_map):
+    """创建示例餐厅"""
+    from app.models.destination import Restaurant
+
+    engine = _get_async_engine_for_current_loop()
+    restaurants_table = Restaurant.__table__
+    created = 0
+
+    async with engine.begin() as conn:
+        for restaurant in RESTAURANTS:
+            record = dict(restaurant)
+            dest_name = record.pop("destination_name")
+            destination_id = destination_map.get(dest_name)
+            if not destination_id:
+                logger.warning(f"⚠️ 未找到目的地 {dest_name}，跳过餐厅 {record['name']}")
+                continue
+
+            stmt = select(restaurants_table.c.id).where(
+                restaurants_table.c.name == record["name"],
+                restaurants_table.c.destination_id == destination_id,
+            )
+            result = await conn.execute(stmt)
+            if result.scalar_one_or_none():
+                continue
+
+            record["destination_id"] = destination_id
+            await conn.execute(insert(restaurants_table).values(record))
+            created += 1
+
+    logger.info(f"✅ 餐厅数据已准备，新增 {created} 条")
+
+
+async def create_default_activity_types():
+    """创建示例活动类型"""
+    from app.models.activity import ActivityType
+
+    engine = _get_async_engine_for_current_loop()
+    activity_table = ActivityType.__table__
+
+    async with engine.begin() as conn:
+        for activity in ACTIVITY_TYPES:
+            stmt = pg_insert(activity_table).values(activity).on_conflict_do_nothing(index_elements=["name"])
+            await conn.execute(stmt)
+
+    logger.info("✅ 活动类型数据已就绪")

@@ -2,7 +2,7 @@
 旅行方案生成服务
 """
 
-from typing import List, Dict, Any, Optional, Callable, Set
+from typing import List, Dict, Any, Optional, Callable, Set, Tuple
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from dataclasses import dataclass, field
@@ -587,6 +587,151 @@ class PlanGenerator:
         if not value:
             return None
         return str(value).strip().lower()
+
+    def _deduplicate_daily_attractions(self, plan_data: Dict[str, Any]) -> None:
+        """在同一方案内按天去重景点，避免同一景点出现在多个日期.
+
+        智能去重策略：
+        1. 如果景点总数充足，严格去重，确保每个景点只出现一次
+        2. 如果景点总数不足，优先保留未使用的景点，但允许重复使用以填满每天的最少景点数
+        
+        仅依靠景点名称进行去重，名称为空或无法解析的条目原样保留。
+        该函数会原地修改 ``plan_data`` 中的 ``daily_itineraries``。
+        """
+        try:
+            daily_itineraries = plan_data.get("daily_itineraries", []) or []
+            if not daily_itineraries:
+                return
+            
+            # 第一步：收集所有景点并统计唯一景点总数
+            all_attractions: List[Tuple[Any, str]] = []  # (attraction_obj, normalized_name)
+            for day in daily_itineraries:
+                attractions = day.get("attractions") or []
+                if not isinstance(attractions, list):
+                    continue
+                for attr in attractions:
+                    name = None
+                    if isinstance(attr, dict):
+                        name = attr.get("name")
+                    elif isinstance(attr, str):
+                        name = attr
+                    normalized = self._normalize_resource_name(name)
+                    if normalized:  # 只统计有名字的景点
+                        all_attractions.append((attr, normalized))
+            
+            # 统计唯一景点数量
+            unique_attraction_names = set(norm for _, norm in all_attractions)
+            total_unique = len(unique_attraction_names)
+            total_days = len(daily_itineraries)
+            min_per_day = self.min_attractions_per_day
+            required_total = total_days * min_per_day
+            
+            # 如果唯一景点数足够，使用严格去重
+            if total_unique >= required_total:
+                seen: Set[str] = set()
+                for day in daily_itineraries:
+                    attractions = day.get("attractions") or []
+                    if not isinstance(attractions, list):
+                        continue
+                    unique: List[Any] = []
+                    for attr in attractions:
+                        name = None
+                        if isinstance(attr, dict):
+                            name = attr.get("name")
+                        elif isinstance(attr, str):
+                            name = attr
+                        normalized = self._normalize_resource_name(name)
+                        # 没有名字的，或者未见过的，直接保留
+                        if not normalized or normalized not in seen:
+                            unique.append(attr)
+                            if normalized:
+                                seen.add(normalized)
+                    day["attractions"] = unique
+                logger.info(f"景点充足({total_unique}个唯一景点，需要{required_total}个)，已严格去重")
+            else:
+                # 景点不足，使用智能去重策略
+                logger.info(f"景点不足({total_unique}个唯一景点，需要{required_total}个)，启用智能去重策略")
+                
+                # 记录每个景点的使用次数
+                usage_count: Dict[str, int] = {}
+                # 建立景点对象到名称的映射
+                attr_to_name: Dict[int, str] = {}  # 使用id(attr)作为key
+                
+                # 第一遍：优先保留未使用的景点，统计使用次数
+                seen: Set[str] = set()
+                for day in daily_itineraries:
+                    attractions = day.get("attractions") or []
+                    if not isinstance(attractions, list):
+                        continue
+                    unique: List[Any] = []
+                    for attr in attractions:
+                        name = None
+                        if isinstance(attr, dict):
+                            name = attr.get("name")
+                        elif isinstance(attr, str):
+                            name = attr
+                        normalized = self._normalize_resource_name(name)
+                        
+                        if not normalized:
+                            # 没有名字的，直接保留
+                            unique.append(attr)
+                        elif normalized not in seen:
+                            # 未使用过的，优先保留
+                            unique.append(attr)
+                            seen.add(normalized)
+                            usage_count[normalized] = 1
+                            attr_to_name[id(attr)] = normalized
+                        else:
+                            # 已使用过的，记录使用次数，稍后处理
+                            usage_count[normalized] = usage_count.get(normalized, 0) + 1
+                            attr_to_name[id(attr)] = normalized
+                    
+                    day["attractions"] = unique
+                
+                # 第二遍：如果某天景点数不足，从已使用的景点中补充（优先选择使用次数最少的）
+                for day in daily_itineraries:
+                    attractions = day.get("attractions") or []
+                    if not isinstance(attractions, list):
+                        continue
+                    
+                    current_count = len([a for a in attractions if self._normalize_resource_name(
+                        a.get("name") if isinstance(a, dict) else (a if isinstance(a, str) else None)
+                    )])
+                    
+                    # 如果当前景点数少于最少要求，需要补充
+                    if current_count < min_per_day:
+                        needed = min_per_day - current_count
+                        
+                        # 找出所有已使用的景点，按使用次数排序（使用次数少的优先）
+                        available_attrs = [
+                            (norm, count) for norm, count in usage_count.items()
+                            if norm in seen  # 只考虑已使用过的
+                        ]
+                        available_attrs.sort(key=lambda x: x[1])  # 按使用次数升序
+                        
+                        # 从使用次数最少的景点中选择补充
+                        for norm, _ in available_attrs[:needed]:
+                            # 从原始数据中找到对应的景点对象
+                            for orig_attr, orig_norm in all_attractions:
+                                if orig_norm == norm:
+                                    # 创建副本，避免引用问题
+                                    if isinstance(orig_attr, dict):
+                                        attr_copy = copy.deepcopy(orig_attr)
+                                    else:
+                                        attr_copy = orig_attr
+                                    attractions.append(attr_copy)
+                                    usage_count[norm] = usage_count.get(norm, 0) + 1
+                                    break
+                        
+                        day["attractions"] = attractions
+                        logger.debug(f"第{day.get('day', '?')}天补充了{needed}个景点，当前共{len(attractions)}个")
+                
+                logger.info(f"智能去重完成，部分景点允许重复使用以填满每天最少{min_per_day}个景点的要求")
+                
+        except Exception as e:  # 防御性，任何异常不影响主流程
+            logger.warning(f"去重每日景点失败: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
 
     def _update_segment_context(self, context: PlanSegmentContext, plan_data: Dict[str, Any]) -> None:
         spent = self._coerce_number(plan_data.get("total_cost", {}).get("total", 0))
@@ -1823,7 +1968,7 @@ class PlanGenerator:
             # 获取目的地坐标信息
             destination_info = await self._extract_destination_info(processed_data, plan.destination)
             
-            plan_data = {
+            plan_data: Dict[str, Any] = {
                 "id": f"plan_{plan_index}",
                 "type": plan_type,
                 "title": f"{plan.destination} {plan_type}旅行方案",
@@ -1841,6 +1986,9 @@ class PlanGenerator:
                 "xiaohongshu_notes": (raw_data.get("xiaohongshu_notes", []) if raw_data else [])
             }
             
+            # 在方案内按天去重景点，避免同一景点多日重复
+            self._deduplicate_daily_attractions(plan_data)
+
             logger.warning(f"生成单个方案成功: {plan_data}")
 
             return plan_data
@@ -1924,12 +2072,14 @@ class PlanGenerator:
 请根据以下信息生成{plan.duration_days}天的详细行程安排：
 
 要求：
-1. 每天的行程要合理安排时间，包含上午、下午、晚上的活动
-2. 景点安排要考虑地理位置，优化游览路线
-3. 结合小红书用户的真实体验和建议
-4. 包含具体的时间安排、交通方式、预估费用
-5. 为每个景点/活动提供详细的游览建议和注意事项
-6. 根据方案类型({plan_type})调整活动强度和选择
+1. 每天的行程要合理安排时间，包含上午、下午、晚上的活动，并保证时间段之间没有重叠； 
+2. 景点安排要考虑地理位置，优化游览路线，避免在一天内安排相距很远、需要长时间往返通勤的景点；
+3. 对于确实相距较远的景点，需要在行程中明确标注通勤耗时，并适当减少当日景点数量；
+4. 结合小红书用户的真实体验和建议，优先选择评价好、体验真实的景点和餐厅；
+5. 包含具体的时间安排、交通方式、预估费用；
+6. 为每个景点/活动提供详细的游览建议和注意事项；
+7. 同一景点名称在整个{plan.duration_days}天行程中只能出现一次，不要在不同日期重复安排同一个景点；
+8. 根据方案类型({plan_type})调整活动强度和选择，避免对某一天安排过于疲劳的行程。
 
 返回JSON格式，结构如下：
 [
@@ -2695,7 +2845,13 @@ class PlanGenerator:
                     )
                 system_prompt = (
                     "你是一位资深景点规划师，请针对某一天制定详细的景点游览安排，"
-                    "需结合真实景点数据与小红书体验建议，输出结构化结果。"
+                    "需结合真实景点数据与小红书体验建议，输出结构化结果。\n"
+                    "具体要求：\n"
+                    "1. 一天内的景点尽量选择地理位置相近、动线顺路的组合，避免在城市中来回折返；\n"
+                    "2. 对于相距较远、需要长时间通勤的景点，当天安排的景点数量要减少，并在行程中明确写出长途通勤时间；\n"
+                    "3. 在时间轴上合理安排上午、下午和晚上的活动，避免时间重叠或不可能完成的安排；\n"
+                    "4. 同一趟旅行中，一个景点不应在不同日期重复安排；\n"
+                    "5. 优先使用提供的真实景点数据，不要凭空捏造不存在的地点。"
                 )
                 user_prompt = f"""
 请为如下旅行生成第 {day} 天（日期：{date_str or '未提供'}）的景点游览方案：
@@ -2903,6 +3059,9 @@ class PlanGenerator:
                     
                     travel_plan["daily_itineraries"] = daily_itineraries
                     
+                    # 在最终组装的方案上做一次全局景点去重，避免同一景点出现在多个日期
+                    self._deduplicate_daily_attractions(travel_plan)
+
                     # 添加餐厅总览
                     travel_plan["restaurants"] = self._merge_restaurant_details(
                         self._extract_restaurants_summary(dining_plans),
