@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FloatButton, Modal, Input, Button, List, Avatar, Spin, Space, Typography, message } from 'antd';
-import { MessageOutlined, SendOutlined, CloseOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
+import { MessageOutlined, SendOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
-import { authFetch } from '../../utils/auth';
+import { getToken } from '../../utils/auth';
 import './AIAssistant.css';
 
 const { TextArea } = Input;
@@ -37,7 +37,7 @@ const AIAssistant: React.FC = () => {
     }
   }, [visible, messages]);
 
-  // 发送消息
+  // 发送消息（流式）
   const handleSend = async () => {
     if (!inputValue.trim() || loading) return;
 
@@ -53,20 +53,35 @@ const AIAssistant: React.FC = () => {
     setInputValue('');
     setLoading(true);
 
+    // 创建AI消息占位符
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now() + 1 // 确保时间戳不同
+    };
+    const messagesWithAssistant = [...newMessages, assistantMessage];
+    setMessages(messagesWithAssistant);
+
     try {
       // 构建对话历史（只包含role和content）
       const conversationHistory = newMessages
-        //.filter(msg => msg.role !== 'system')
         .map(msg => ({
           role: msg.role,
           content: msg.content
         }));
 
-      // 调用API
-      const response = await authFetch(buildApiUrl(API_ENDPOINTS.OPENAI_CHAT), {
+      // 获取token
+      const token = getToken();
+      if (!token) {
+        throw new Error('未登录');
+      }
+
+      // 调用流式API
+      const response = await fetch(buildApiUrl(API_ENDPOINTS.OPENAI_CHAT_STREAM), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           message: userMessage.content,
@@ -79,31 +94,93 @@ const AIAssistant: React.FC = () => {
         throw new Error(errorData.detail || `请求失败 (${response.status})`);
       }
 
-      const data = await response.json();
+      // 读取流式响应
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedContent = '';
 
-      if (data.status === 'success') {
-        const assistantMessage: Message = {
-          role: 'assistant',
-          content: data.message,
-          timestamp: Date.now()
-        };
-        setMessages([...newMessages, assistantMessage]);
-      } else {
-        throw new Error(data.message || 'AI响应异常');
+      if (!reader) {
+        throw new Error('无法读取响应流');
+      }
+
+      const updateMessage = (content: string) => {
+        setMessages(prev => {
+          const updated = [...prev];
+          // 查找最后一个AI消息（role为assistant且可能是空的）
+          // 从后往前查找，找到第一个assistant消息
+          let targetIndex = -1;
+          for (let i = updated.length - 1; i >= 0; i--) {
+            if (updated[i].role === 'assistant') {
+              targetIndex = i;
+              break;
+            }
+          }
+          
+          // 如果找到了，更新它
+          if (targetIndex !== -1) {
+            updated[targetIndex] = {
+              ...updated[targetIndex],
+              content: content
+            };
+          }
+          return updated;
+        });
+        // 滚动到底部
+        setTimeout(() => scrollToBottom(), 10);
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === 'content') {
+                accumulatedContent += data.content;
+                updateMessage(accumulatedContent);
+              } else if (data.type === 'done') {
+                setLoading(false);
+                updateMessage(accumulatedContent);
+              } else if (data.type === 'error') {
+                throw new Error(data.message || '流式响应错误');
+              }
+            } catch (e) {
+              // 忽略JSON解析错误
+              console.warn('解析流式数据失败:', e);
+            }
+          }
+        }
       }
     } catch (error: any) {
       console.error('AI对话失败:', error);
       message.error(error.message || 'AI对话失败，请稍后重试');
-      
-      // 添加错误消息
-      const errorMessage: Message = {
-        role: 'assistant',
-        content: `抱歉，我遇到了一些问题：${error.message || '未知错误'}`,
-        timestamp: Date.now()
-      };
-      setMessages([...newMessages, errorMessage]);
-    } finally {
       setLoading(false);
+      
+      // 更新错误消息
+      setMessages(prev => {
+        const updated = [...prev];
+        // 查找最后一个AI消息（role为assistant）
+        let targetIndex = -1;
+        for (let i = updated.length - 1; i >= 0; i--) {
+          if (updated[i].role === 'assistant') {
+            targetIndex = i;
+            break;
+          }
+        }
+        if (targetIndex !== -1) {
+          updated[targetIndex] = {
+            ...updated[targetIndex],
+            content: `抱歉，我遇到了一些问题：${error.message || '未知错误'}`
+          };
+        }
+        return updated;
+      });
     }
   };
 

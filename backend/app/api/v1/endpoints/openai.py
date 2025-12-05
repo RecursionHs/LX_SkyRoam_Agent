@@ -3,10 +3,12 @@ OpenAI配置相关API端点
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, AsyncGenerator
 from pydantic import BaseModel
 import asyncio
+import json
 
 from app.models.user import User
 from app.core.database import get_async_db
@@ -203,3 +205,112 @@ async def chat_with_ai(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI对话失败: {str(e)}")
+
+
+@router.post("/chat/stream")
+async def chat_with_ai_stream(
+    request: ChatRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    流式AI对话接口，支持实时流式响应
+    
+    Args:
+        request: 聊天请求，包含message、conversation_history和system_prompt
+    """
+    try:
+        # 默认系统提示词（合法合规内容输出限制）
+        default_system_prompt = """你是一个专业的AI助手，专门帮助用户解答关于旅行规划、目的地信息、旅行方案等相关问题。
+
+请遵循以下原则：
+1. 提供准确、有用的信息和建议
+2. 遵守法律法规，不提供任何违法、违规内容
+3. 不涉及政治敏感话题
+4. 不传播虚假信息
+5. 尊重用户隐私，不泄露用户信息
+6. 对于不确定的信息，明确告知用户
+7. 保持友好、专业的沟通态度
+
+如果用户的问题超出你的能力范围或涉及不当内容，请礼貌地告知用户。"""
+
+        # 构建消息列表
+        messages = []
+        
+        # 添加系统提示词
+        messages.append({
+            "role": "system",
+            "content": request.system_prompt or default_system_prompt
+        })
+        
+        # 添加对话历史（如果存在）
+        if request.conversation_history:
+            # 确保历史记录格式正确
+            for item in request.conversation_history:
+                if isinstance(item, dict) and "role" in item and "content" in item:
+                    messages.append({
+                        "role": item["role"],
+                        "content": item["content"]
+                    })
+        
+        # 添加当前用户消息
+        messages.append({
+            "role": "user",
+            "content": request.message
+        })
+        
+        async def generate_stream() -> AsyncGenerator[str, None]:
+            """生成流式响应"""
+            try:
+                # 调用OpenAI流式API
+                async for chunk in openai_client._call_api_stream(
+                    messages=messages,
+                    max_tokens=settings.OPENAI_MAX_TOKENS,
+                    temperature=settings.OPENAI_TEMPERATURE
+                ):
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if hasattr(delta, 'content') and delta.content:
+                            # 发送内容块
+                            data = {
+                                "type": "content",
+                                "content": delta.content
+                            }
+                            yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                        
+                        # 检查是否完成
+                        if chunk.choices[0].finish_reason:
+                            # 发送完成信号
+                            usage_data = {}
+                            if hasattr(chunk, 'usage') and chunk.usage:
+                                usage_data = {
+                                    "prompt_tokens": chunk.usage.prompt_tokens if hasattr(chunk.usage, 'prompt_tokens') else 0,
+                                    "completion_tokens": chunk.usage.completion_tokens if hasattr(chunk.usage, 'completion_tokens') else 0,
+                                    "total_tokens": chunk.usage.total_tokens if hasattr(chunk.usage, 'total_tokens') else 0
+                                }
+                            
+                            data = {
+                                "type": "done",
+                                "usage": usage_data
+                            }
+                            yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                            break
+            except Exception as e:
+                # 发送错误信息
+                error_data = {
+                    "type": "error",
+                    "message": str(e)
+                }
+                yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+        
+        return StreamingResponse(
+            generate_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI流式对话失败: {str(e)}")

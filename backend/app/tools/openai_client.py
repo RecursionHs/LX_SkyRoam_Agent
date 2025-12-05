@@ -4,7 +4,7 @@ OpenAI客户端工具
 """
 
 import openai
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, AsyncGenerator
 from loguru import logger
 import asyncio
 from app.core.config import settings
@@ -250,6 +250,36 @@ class OpenAIClient:
             
         except Exception as e:
             logger.error(f"调用OpenAI API失败: {e}")
+            raise
+    
+    async def _call_api_stream(
+        self, 
+        messages: List[Dict[str, str]], 
+        **kwargs
+    ):
+        """调用OpenAI流式API"""
+        try:
+            # 使用异步客户端
+            client = openai.AsyncOpenAI(
+                api_key=self.api_key,
+                base_url=self.api_base if self.api_base != "https://api.openai.com/v1" else None,
+                timeout=self.timeout
+            )
+            
+            stream = await client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=kwargs.get('max_tokens', self.max_tokens),
+                temperature=kwargs.get('temperature', self.temperature),
+                stream=True,
+                **{k: v for k, v in kwargs.items() if k not in ['max_tokens', 'temperature', 'stream']}
+            )
+            
+            async for chunk in stream:
+                yield chunk
+            
+        except Exception as e:
+            logger.error(f"调用OpenAI流式API失败: {e}")
             raise
     
     def _summarize_data(self, data: Dict[str, Any]) -> str:
