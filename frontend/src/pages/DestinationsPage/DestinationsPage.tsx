@@ -1,10 +1,156 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { Card, Row, Col, Typography, Input, Space, Tag, Image, Modal, List, Button, Spin, Empty, Carousel, Select, DatePicker } from 'antd';
+import { Card, Row, Col, Typography, Input, Space, Tag, Modal, List, Button, Spin, Empty, Carousel, Select, DatePicker } from 'antd';
 import { GlobalOutlined, SearchOutlined, EnvironmentOutlined, CalendarOutlined, DollarOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { buildApiUrl, API_ENDPOINTS } from '../../config/api';
 import { authFetch } from '../../utils/auth';
+
+// 懒加载图片组件（支持多候选路径）
+interface LazyImageProps {
+  candidates: string[]; // 图片候选路径列表（按优先级排序）
+  fallback: string; // 最终fallback图片
+  alt: string;
+  height?: number;
+  style?: React.CSSProperties;
+  onError?: (e: React.SyntheticEvent<HTMLImageElement, Event>) => void;
+}
+
+const LazyImage: React.FC<LazyImageProps> = ({ candidates, fallback, alt, height, style, onError }) => {
+  const [isInView, setIsInView] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
+  const [hasError, setHasError] = useState(false);
+  const imgRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setIsInView(true);
+            observer.disconnect();
+          }
+        });
+      },
+      {
+        rootMargin: '50px', // 提前50px开始加载
+      }
+    );
+
+    const currentRef = imgRef.current;
+    if (currentRef) {
+      observer.observe(currentRef);
+    }
+
+    return () => {
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
+      observer.disconnect();
+    };
+  }, []);
+
+  // 当进入视口时，开始尝试加载图片
+  useEffect(() => {
+    if (!isInView || imgSrc) return; // 如果已经加载成功，不再尝试
+
+    // 合并所有候选路径和fallback
+    const allCandidates = [...candidates, fallback];
+    const currentSrc = allCandidates[currentIndex];
+
+    if (!currentSrc) {
+      setHasError(true);
+      return;
+    }
+
+    // 尝试加载当前候选
+    const img = new window.Image();
+    let cancelled = false;
+    
+    img.onload = () => {
+      if (!cancelled) {
+        setImgSrc(currentSrc);
+      }
+    };
+    img.onerror = () => {
+      if (!cancelled) {
+        // 当前候选失败，尝试下一个
+        if (currentIndex < allCandidates.length - 1) {
+          setCurrentIndex(currentIndex + 1);
+        } else {
+          // 所有候选都失败
+          setHasError(true);
+        }
+      }
+    };
+    img.src = currentSrc;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isInView, currentIndex, candidates, fallback, imgSrc]);
+
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    const allCandidates = [...candidates, fallback];
+    // 如果当前图片加载失败，尝试下一个候选
+    if (currentIndex < allCandidates.length - 1) {
+      setImgSrc(null); // 重置
+      setCurrentIndex(currentIndex + 1); // 尝试下一个
+    } else {
+      // 所有候选都失败
+      setHasError(true);
+      if (onError) {
+        onError(e);
+      }
+    }
+  };
+
+  const allCandidates = [...candidates, fallback];
+  const currentSrc = imgSrc || (currentIndex < allCandidates.length ? allCandidates[currentIndex] : null);
+
+  // 分离容器样式和图片样式
+  const { objectFit, borderTopLeftRadius, borderTopRightRadius, borderRadius, ...restStyle } = style || {};
+  
+  const containerStyle: React.CSSProperties = {
+    height,
+    width: '100%',
+    overflow: 'hidden',
+    position: 'relative',
+    ...restStyle,
+  };
+
+  const imageStyle: React.CSSProperties = {
+    width: '100%',
+    height: '100%',
+    objectFit: objectFit || 'cover',
+    display: 'block',
+    borderTopLeftRadius: borderTopLeftRadius,
+    borderTopRightRadius: borderTopRightRadius,
+    borderRadius: borderRadius,
+  };
+
+  return (
+    <div ref={imgRef} style={containerStyle}>
+      {hasError ? (
+        <div style={{ height, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+          <Text type="secondary">图片加载失败</Text>
+        </div>
+      ) : currentSrc && imgSrc ? (
+        <img
+          src={imgSrc}
+          alt={alt}
+          style={imageStyle}
+          onError={handleImageError}
+        />
+      ) : (
+        <div style={{ height, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+          <Spin size="small" />
+        </div>
+      )}
+    </div>
+  );
+};
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -355,17 +501,12 @@ const DestinationsPage: React.FC = () => {
               <div key={d.id}>
                 <Row gutter={16} align="middle">
                   <Col xs={24} md={10}>
-                    <Image
-                       src={resolveLocalImage(d)}
+                    <LazyImage
+                       candidates={getAllImageCandidates(d)}
                        fallback={getFallbackImage(d)}
                        alt={d.name}
                        height={220}
-                       style={{ objectFit: 'cover', width: '100%' }}
-                       onError={(e) => {
-                         const img = e.currentTarget as HTMLImageElement;
-                         const fb = getFallbackImage(d);
-                         if (img.src !== fb) img.src = fb;
-                       }}
+                       style={{ objectFit: 'cover' }}
                      />
                   </Col>
                   <Col xs={24} md={14}>
@@ -415,17 +556,12 @@ const DestinationsPage: React.FC = () => {
                   style={{ borderRadius: 12, overflow: 'hidden' }}
                   onClick={() => openPlansModal(d)}
                   cover={(
-                    <Image src={resolveLocalImage(d)}
+                    <LazyImage
+                      candidates={getAllImageCandidates(d)}
                       fallback={getFallbackImage(d)}
                       alt={d.name}
                       height={160}
-                      preview={false}
-                      style={{ objectFit: 'cover', borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
-                      onError={(e) => {
-                        const img = e.currentTarget as HTMLImageElement;
-                        const fb = getFallbackImage(d);
-                        if (img.src !== fb) img.src = fb;
-                      }}
+                      style={{ objectFit: 'cover', borderTopLeftRadius: 12, borderTopRightRadius: 12, borderRadius: 0 }}
                     />
                   )}
                 >
@@ -621,13 +757,58 @@ const toImageFileName = (name: string): string => {
   return name.trim();
 };
 
-// 获取本地图片路径（优先）
-const resolveLocalImage = (d: Destination): string => {
-  const fileName = toImageFileName(d.name);
-  return `/static/images/destinations/${encodeURIComponent(fileName)}.jpg`;
+// 生成图片匹配候选列表（支持部分匹配）
+// 例如："杭州西湖" -> ["杭州西湖", "杭州", "西湖"]
+const generateImageCandidates = (name: string, city?: string | null): string[] => {
+  const candidates: string[] = [];
+  const trimmed = name.trim();
+  
+  if (!trimmed) return candidates;
+  
+  // 1. 完整名称（最高优先级）
+  candidates.push(trimmed);
+  
+  // 2. 如果名称长度大于2，尝试提取关键词
+  if (trimmed.length > 2) {
+    // 2.1 提取前2个字符（常见城市名，如"杭州"、"北京"）
+    const firstTwo = trimmed.substring(0, 2);
+    if (firstTwo.length === 2 && !candidates.includes(firstTwo)) {
+      candidates.push(firstTwo);
+    }
+    
+    // 2.2 如果名称长度>=4，尝试提取后2个字符（如"西湖"）
+    if (trimmed.length >= 4) {
+      const lastTwo = trimmed.substring(trimmed.length - 2);
+      if (lastTwo.length === 2 && !candidates.includes(lastTwo)) {
+        candidates.push(lastTwo);
+      }
+    }
+    
+    // 2.3 如果名称包含常见分隔符或关键词，尝试提取
+    // 例如："杭州西湖" 可以提取 "杭州" 和 "西湖"
+    // 这里我们优先使用前2个字符，因为城市名通常在前面
+  }
+  
+  // 3. 如果提供了城市名，且与名称不同，也加入候选
+  if (city && city.trim()) {
+    const cityTrimmed = city.trim();
+    if (cityTrimmed !== trimmed && !candidates.includes(cityTrimmed)) {
+      candidates.push(cityTrimmed);
+    }
+  }
+  
+  return candidates;
 };
 
-// 获取备用图片（优先级：API返回的图片 > 随机图片）
+// 获取所有候选图片路径（用于按顺序尝试加载）
+const getAllImageCandidates = (d: Destination): string[] => {
+  const candidates = generateImageCandidates(d.name, d.city);
+  return candidates.map(candidate => 
+    `/static/images/destinations/${encodeURIComponent(candidate)}.jpg`
+  );
+};
+
+// 获取备用图片（优先级：API返回的图片 > 部分匹配的图片 > 随机图片）
 const getFallbackImage = (d: Destination): string => {
   // 优先使用 API 返回的图片
   const imgs = Array.isArray(d.images) ? d.images : [];
@@ -635,6 +816,14 @@ const getFallbackImage = (d: Destination): string => {
   if (first) {
     return first;
   }
+  
+  // 尝试部分匹配的图片（跳过第一个，因为第一个已经在主路径中尝试过了）
+  const candidates = generateImageCandidates(d.name, d.city);
+  if (candidates.length > 1) {
+    // 这里返回第二个候选，实际加载时会通过 onError 依次尝试
+    return `/static/images/destinations/${encodeURIComponent(candidates[1])}.jpg`;
+  }
+  
   // 最后使用随机图片作为兜底
   const fileName = toImageFileName(d.name);
   return `https://picsum.photos/seed/${encodeURIComponent(fileName)}/800/600`;
