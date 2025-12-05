@@ -26,8 +26,8 @@ const featureList = [
   },
   {
     icon: '⚡',
-    title: '秒速生成',
-    description: '先进引擎毫秒级响应，瞬间获取完整方案'
+    title: '极速生成',
+    description: '先进引擎秒级响应，瞬间获取完整方案'
   },
   {
     icon: '💰',
@@ -37,10 +37,10 @@ const featureList = [
 ];
 
 const statCards = [
-  { label: '活跃用户', value: '12.5K+', gradient: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)' },
+  { label: '活跃用户', value: '12.3K+', gradient: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%)' },
   { label: '规划方案', value: '45.6K+', gradient: 'linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%)' },
   { label: '覆盖城市', value: '280+', gradient: 'linear-gradient(135deg, #10b981 0%, #34d399 100%)' },
-  { label: '满意度', value: '98.5%', gradient: 'linear-gradient(135deg, #fb923c 0%, #ef4444 100%)' }
+  { label: '满意度', value: '98.7%', gradient: 'linear-gradient(135deg, #fb923c 0%, #ef4444 100%)' }
 ];
 
 const workflowSteps = [
@@ -65,9 +65,9 @@ const workflowSteps = [
 ];
 
 const heroHighlights = [
-  { label: '活跃用户', value: '12.5K+' },
+  { label: '活跃用户', value: '12.3K+' },
   { label: '生成方案', value: '45.6K+' },
-  { label: '满意度', value: '98.5%' }
+  { label: '满意度', value: '98.7%' }
 ];
 
 const HomePage: React.FC = () => {
