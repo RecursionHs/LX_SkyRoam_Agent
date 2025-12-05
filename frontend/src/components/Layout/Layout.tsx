@@ -14,6 +14,7 @@ import './Layout.css';
 import { getToken, clearToken } from '../../utils/auth';
 import { authFetch } from '../../utils/auth';
 import { buildApiUrl } from '../../config/api';
+import AIAssistant from '../AIAssistant';
 
 const { Header, Content, Footer } = AntLayout;
 const { Title } = Typography;
@@ -252,6 +253,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <Drawer title="菜单" placement="right" onClose={() => setMobileMenuVisible(false)} open={mobileMenuVisible} bodyStyle={{ padding: 0 }}>
         {mobileMenu}
       </Drawer>
+
+      {/* AI助手 */}
+      <AIAssistant />
 
     </AntLayout>
   );

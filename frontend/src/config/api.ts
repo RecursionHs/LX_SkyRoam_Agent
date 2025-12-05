@@ -56,6 +56,7 @@ export const API_ENDPOINTS = {
   // OpenAI
   OPENAI_CONFIG: '/openai/config',
   OPENAI_TEST: '/openai/test',
+  OPENAI_CHAT: '/openai/chat',
   
   // 地图
   MAP_STATIC: '/map/static',
