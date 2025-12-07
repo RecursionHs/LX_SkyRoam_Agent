@@ -14,6 +14,77 @@ interface Message {
   timestamp: number;
 }
 
+// 上下文长度限制配置（默认值，会从后端 API 获取实际配置）
+const DEFAULT_MAX_CONTEXT_TOKENS = 12000; // 默认最大上下文 token 数
+const DEFAULT_ESTIMATED_CHARS_PER_TOKEN = 2; // 默认估算：1 token ≈ 2 字符（中文为主）
+const DEFAULT_MAX_RECENT_MESSAGES = 20; // 默认最多保留最近 N 轮对话
+
+/**
+ * 估算文本的 token 数量（粗略估算）
+ */
+const estimateTokens = (text: string, charsPerToken: number = DEFAULT_ESTIMATED_CHARS_PER_TOKEN): number => {
+  // 中文和英文混合，粗略估算
+  return Math.ceil(text.length / charsPerToken);
+};
+
+/**
+ * 智能截断对话历史，确保不超过 token 限制
+ * 策略：
+ * 1. 优先保留最近的对话（最多 maxRecentMessages 轮）
+ * 2. 如果还有空间，保留初始上下文的核心部分
+ * 3. 如果初始上下文太长，截断但保留开头和关键信息
+ */
+const truncateConversationHistory = (
+  messages: Array<{ role: string; content: string }>,
+  maxContextTokens: number = DEFAULT_MAX_CONTEXT_TOKENS,
+  charsPerToken: number = DEFAULT_ESTIMATED_CHARS_PER_TOKEN,
+  maxRecentMessages: number = DEFAULT_MAX_RECENT_MESSAGES
+): Array<{ role: string; content: string }> => {
+  if (messages.length === 0) return [];
+
+  // 分离初始上下文（第一个 assistant 消息，通常是长文本）和后续对话
+  const initialContext = messages[0]?.role === 'assistant' ? messages[0] : null;
+  const conversationMessages = initialContext ? messages.slice(1) : messages;
+
+  // 保留最近的对话（最多 maxRecentMessages 轮，即 maxRecentMessages * 2 条消息）
+  const recentMessages = conversationMessages.slice(-maxRecentMessages * 2);
+
+  // 计算已使用的 token 数
+  let usedTokens = recentMessages.reduce((sum, msg) => sum + estimateTokens(msg.content, charsPerToken), 0);
+
+  // 如果有初始上下文，尝试添加它（可能需要截断）
+  if (initialContext) {
+    const initialTokens = estimateTokens(initialContext.content, charsPerToken);
+    const remainingTokens = maxContextTokens - usedTokens - 1000; // 留出 1000 tokens 缓冲
+
+    if (initialTokens <= remainingTokens) {
+      // 初始上下文可以完整保留
+      return [initialContext, ...recentMessages];
+    } else if (remainingTokens > 1000) {
+      // 初始上下文太长，需要截断
+      // 保留开头部分（通常包含重要信息）和结尾部分
+      const maxInitialChars = (remainingTokens - 500) * charsPerToken; // 留出 500 tokens
+      const keepStartChars = Math.floor(maxInitialChars * 0.6); // 保留 60% 的开头
+      const keepEndChars = Math.floor(maxInitialChars * 0.4); // 保留 40% 的结尾
+
+      const truncatedContent = 
+        initialContext.content.substring(0, keepStartChars) +
+        '\n\n[... 内容已截断以节省上下文空间 ...]\n\n' +
+        initialContext.content.substring(initialContext.content.length - keepEndChars);
+
+      return [
+        { ...initialContext, content: truncatedContent },
+        ...recentMessages
+      ];
+    } else {
+      // 剩余空间太小，不添加初始上下文，只保留最近对话
+      return recentMessages;
+    }
+  }
+
+  return recentMessages;
+};
+
 const AIAssistant: React.FC = () => {
   const [visible, setVisible] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -21,6 +92,48 @@ const AIAssistant: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<any>(null);
+  
+  // 配置状态（从后端获取）
+  const [config, setConfig] = useState<{
+    maxInputTokens: number;
+    estimatedCharsPerToken: number;
+    maxRecentMessages: number;
+  }>({
+    maxInputTokens: DEFAULT_MAX_CONTEXT_TOKENS,
+    estimatedCharsPerToken: DEFAULT_ESTIMATED_CHARS_PER_TOKEN,
+    maxRecentMessages: DEFAULT_MAX_RECENT_MESSAGES,
+  });
+  
+  // 从后端获取配置
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const token = getToken();
+        if (!token) return;
+        
+        const response = await fetch(buildApiUrl(API_ENDPOINTS.OPENAI_CONFIG), {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.config) {
+            setConfig({
+              maxInputTokens: data.config.max_input_tokens || DEFAULT_MAX_CONTEXT_TOKENS,
+              estimatedCharsPerToken: data.config.estimated_chars_per_token || DEFAULT_ESTIMATED_CHARS_PER_TOKEN,
+              maxRecentMessages: data.config.max_recent_messages || DEFAULT_MAX_RECENT_MESSAGES,
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('获取 AI 配置失败，使用默认值:', error);
+      }
+    };
+    
+    fetchConfig();
+  }, []);
 
   // 滚动到底部
   const scrollToBottom = () => {
@@ -99,6 +212,27 @@ const AIAssistant: React.FC = () => {
           content: msg.content
         }));
 
+      // 智能截断对话历史，确保不超过 token 限制
+      const truncatedHistory = truncateConversationHistory(
+        conversationHistory.slice(0, -1), // 排除当前用户消息
+        config.maxInputTokens,
+        config.estimatedCharsPerToken,
+        config.maxRecentMessages
+      );
+
+      // 检查是否进行了截断
+      const wasTruncated = truncatedHistory.length < conversationHistory.length - 1 ||
+        truncatedHistory.some((msg, idx) => {
+          const original = conversationHistory[idx];
+          return original && msg.content !== original.content;
+        });
+
+      if (wasTruncated) {
+        console.warn('对话历史已自动截断以符合上下文长度限制');
+        // 可选：显示提示信息（但不打断用户体验）
+        // message.info('对话历史较长，已自动截断以保持响应速度', 2);
+      }
+
       // 获取token
       const token = getToken();
       if (!token) {
@@ -114,7 +248,7 @@ const AIAssistant: React.FC = () => {
         },
         body: JSON.stringify({
           message: userMessage.content,
-          conversation_history: conversationHistory.slice(0, -1), // 排除当前消息
+          conversation_history: truncatedHistory,
         }),
       });
 

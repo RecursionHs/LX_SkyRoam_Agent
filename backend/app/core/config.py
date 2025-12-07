@@ -53,7 +53,24 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_API_BASE: str = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")  # 自定义API地址
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview")
-    OPENAI_MAX_TOKENS: int = os.getenv("OPENAI_MAX_TOKENS", 4000)
+    
+    # OpenAI Token 限制配置
+    # 模型上下文窗口大小（根据模型自动设置，常见值：gpt-4=8K, gpt-3.5-turbo=16K, gpt-4-turbo-preview=128K）
+    # 如果未设置，会根据 OPENAI_MODEL 自动推断
+    OPENAI_CONTEXT_WINDOW: Optional[int] = int(os.getenv("OPENAI_CONTEXT_WINDOW", "0")) or None
+    
+    # 最大输入 token 数（通常占上下文窗口的 60-70%，留出空间给输出）
+    # 如果未设置，会根据 OPENAI_CONTEXT_WINDOW 自动计算（60%）
+    OPENAI_MAX_INPUT_TOKENS: Optional[int] = int(os.getenv("OPENAI_MAX_INPUT_TOKENS", "0")) or None
+    
+    # 最大输出 token 数（通常占上下文窗口的 30-40%）
+    # 如果未设置，会根据 OPENAI_CONTEXT_WINDOW 自动计算（30%）
+    OPENAI_MAX_TOKENS: Optional[int] = int(os.getenv("OPENAI_MAX_TOKENS", "0")) or None
+    
+    # Token 估算配置（用于前端截断）
+    OPENAI_ESTIMATED_CHARS_PER_TOKEN: float = float(os.getenv("OPENAI_ESTIMATED_CHARS_PER_TOKEN", "2.0"))  # 1 token ≈ 2 字符（中文为主）
+    OPENAI_MAX_RECENT_MESSAGES: int = int(os.getenv("OPENAI_MAX_RECENT_MESSAGES", "20"))  # 最多保留最近 N 轮对话
+    
     OPENAI_TEMPERATURE: float = os.getenv("OPENAI_TEMPERATURE", 0.7)
     OPENAI_TIMEOUT: int = os.getenv("OPENAI_TIMEOUT", 300)  # API超时时间（秒）
     OPENAI_MAX_RETRIES: int = os.getenv("OPENAI_MAX_RETRIES", 3)  # 最大重试次数
@@ -188,6 +205,63 @@ class Settings(BaseSettings):
 
 # 创建全局配置实例
 settings = Settings()
+
+
+def _get_model_context_window(model: str) -> int:
+    """根据模型名称推断上下文窗口大小"""
+    model_lower = model.lower()
+    
+    # GPT-4 系列
+    if "gpt-4-turbo" in model_lower or "gpt-4o" in model_lower:
+        return 128000  # 128K
+    elif "gpt-4-32k" in model_lower:
+        return 32768  # 32K
+    elif "gpt-4" in model_lower:
+        return 8192  # 8K
+    
+    # GPT-3.5 系列
+    elif "gpt-3.5-turbo-16k" in model_lower:
+        return 16384  # 16K
+    elif "gpt-3.5-turbo" in model_lower:
+        return 16384  # 16K
+    
+    # Claude 系列
+    elif "claude-3-opus" in model_lower or "claude-3-sonnet" in model_lower:
+        return 200000  # 200K
+    elif "claude-3-haiku" in model_lower:
+        return 200000  # 200K
+    elif "claude-2" in model_lower:
+        return 100000  # 100K
+    
+    # 默认值（保守估计）
+    return 16384  # 16K
+
+
+def _init_openai_token_limits():
+    """初始化 OpenAI token 限制配置"""
+    # 如果未设置上下文窗口，根据模型自动推断
+    if settings.OPENAI_CONTEXT_WINDOW is None:
+        settings.OPENAI_CONTEXT_WINDOW = _get_model_context_window(settings.OPENAI_MODEL)
+    
+    context_window = settings.OPENAI_CONTEXT_WINDOW
+    
+    # 如果未设置最大输入 token，自动计算（占 60%）
+    if settings.OPENAI_MAX_INPUT_TOKENS is None:
+        settings.OPENAI_MAX_INPUT_TOKENS = int(context_window * 0.6)
+    
+    # 如果未设置最大输出 token，自动计算（占 30%，但不超过 4000）
+    if settings.OPENAI_MAX_TOKENS is None:
+        settings.OPENAI_MAX_TOKENS = min(int(context_window * 0.3), 4000)
+    
+    # 确保输入 + 输出不超过上下文窗口（留出 10% 缓冲）
+    max_total = int(context_window * 0.9)
+    if settings.OPENAI_MAX_INPUT_TOKENS + settings.OPENAI_MAX_TOKENS > max_total:
+        # 优先保证输出，调整输入
+        settings.OPENAI_MAX_INPUT_TOKENS = max_total - settings.OPENAI_MAX_TOKENS
+
+
+# 初始化 token 限制
+_init_openai_token_limits()
 
 # 确保必要的目录存在
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

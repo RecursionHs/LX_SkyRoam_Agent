@@ -15,6 +15,7 @@ from app.core.database import get_async_db
 from app.tools.openai_client import openai_client
 from app.core.config import settings
 from app.core.security import get_current_user, is_admin
+from loguru import logger
 
 
 class ChatRequest(BaseModel):
@@ -26,11 +27,111 @@ class ChatRequest(BaseModel):
 router = APIRouter()
 
 
+def get_max_input_tokens() -> int:
+    """获取最大输入 token 数（从配置读取）"""
+    return settings.OPENAI_MAX_INPUT_TOKENS or 12000
+
+
+def get_estimated_chars_per_token() -> float:
+    """获取 token 估算比例（从配置读取）"""
+    return settings.OPENAI_ESTIMATED_CHARS_PER_TOKEN
+
+
+def get_max_context_chars() -> int:
+    """获取最大上下文字符数"""
+    max_tokens = get_max_input_tokens()
+    chars_per_token = get_estimated_chars_per_token()
+    return int(max_tokens * chars_per_token)
+
+
+def get_max_recent_messages() -> int:
+    """获取最多保留的对话轮数（从配置读取）"""
+    return settings.OPENAI_MAX_RECENT_MESSAGES
+
+
+def estimate_tokens(text: str) -> int:
+    """估算文本的 token 数量（粗略估算）"""
+    chars_per_token = get_estimated_chars_per_token()
+    return int((len(text) + chars_per_token - 1) / chars_per_token)
+
+
+def truncate_conversation_history(
+    conversation_history: Optional[List[Dict[str, str]]]
+) -> List[Dict[str, str]]:
+    """
+    智能截断对话历史，确保不超过 token 限制
+    
+    策略：
+    1. 优先保留最近的对话（最多 MAX_RECENT_MESSAGES 轮）
+    2. 如果还有空间，保留初始上下文的核心部分
+    3. 如果初始上下文太长，截断但保留开头和关键信息
+    """
+    if not conversation_history:
+        return []
+    
+    if len(conversation_history) == 0:
+        return []
+    
+    # 分离初始上下文（第一个 assistant 消息，通常是长文本）和后续对话
+    initial_context = conversation_history[0] if (
+        conversation_history[0].get("role") == "assistant"
+    ) else None
+    conversation_messages = conversation_history[1:] if initial_context else conversation_history
+    
+    # 保留最近的对话（最多 MAX_RECENT_MESSAGES 轮，即 MAX_RECENT_MESSAGES * 2 条消息）
+    max_recent = get_max_recent_messages()
+    recent_messages = conversation_messages[-max_recent * 2:] if len(conversation_messages) > max_recent * 2 else conversation_messages
+    
+    # 计算已使用的 token 数
+    used_tokens = sum(estimate_tokens(msg.get("content", "")) for msg in recent_messages)
+    
+    # 如果有初始上下文，尝试添加它（可能需要截断）
+    if initial_context:
+        initial_content = initial_context.get("content", "")
+        initial_tokens = estimate_tokens(initial_content)
+        max_input_tokens = get_max_input_tokens()
+        remaining_tokens = max_input_tokens - used_tokens - 1000  # 留出 1000 tokens 缓冲
+        
+        if initial_tokens <= remaining_tokens:
+            # 初始上下文可以完整保留
+            return [initial_context] + recent_messages
+        elif remaining_tokens > 1000:
+            # 初始上下文太长，需要截断
+            # 保留开头部分（通常包含重要信息）和结尾部分
+            chars_per_token = get_estimated_chars_per_token()
+            max_initial_chars = int((remaining_tokens - 500) * chars_per_token)  # 留出 500 tokens
+            keep_start_chars = int(max_initial_chars * 0.6)  # 保留 60% 的开头
+            keep_end_chars = int(max_initial_chars * 0.4)  # 保留 40% 的结尾
+            
+            truncated_content = (
+                initial_content[:keep_start_chars] +
+                "\n\n[... 内容已截断以节省上下文空间 ...]\n\n" +
+                initial_content[-keep_end_chars:]
+            )
+            
+            truncated_context = {**initial_context, "content": truncated_content}
+            return [truncated_context] + recent_messages
+        else:
+            # 剩余空间太小，不添加初始上下文，只保留最近对话
+            logger.warning(f"初始上下文过长，已丢弃。剩余 tokens: {remaining_tokens}")
+            return recent_messages
+    
+    return recent_messages
+
+
 @router.get("/config")
 async def get_openai_config():
-    """获取OpenAI配置信息"""
+    """获取OpenAI配置信息（包括 token 限制配置）"""
     try:
         config = openai_client.get_client_info()
+        # 添加 token 限制配置信息
+        config.update({
+            "max_input_tokens": get_max_input_tokens(),
+            "max_output_tokens": settings.OPENAI_MAX_TOKENS or 4000,
+            "context_window": settings.OPENAI_CONTEXT_WINDOW or 16384,
+            "estimated_chars_per_token": get_estimated_chars_per_token(),
+            "max_recent_messages": get_max_recent_messages(),
+        })
         return {
             "status": "success",
             "config": config
@@ -170,8 +271,16 @@ async def chat_with_ai(
         
         # 添加对话历史（如果存在）
         if request.conversation_history:
+            # 智能截断对话历史，确保不超过 token 限制
+            truncated_history = truncate_conversation_history(request.conversation_history)
+            
+            if len(truncated_history) < len(request.conversation_history):
+                logger.info(
+                    f"对话历史已截断: {len(request.conversation_history)} -> {len(truncated_history)} 条消息"
+                )
+            
             # 确保历史记录格式正确
-            for item in request.conversation_history:
+            for item in truncated_history:
                 if isinstance(item, dict) and "role" in item and "content" in item:
                     messages.append({
                         "role": item["role"],
@@ -184,10 +293,35 @@ async def chat_with_ai(
             "content": request.message
         })
         
+        # 最终检查：如果总长度仍然过长，进行二次截断（保留最近的）
+        total_chars = sum(len(msg.get("content", "")) for msg in messages)
+        max_context_chars = get_max_context_chars()
+        if total_chars > max_context_chars:
+            logger.warning(f"消息总长度仍然过长 ({total_chars} 字符)，进行二次截断")
+            # 保留系统提示词和最近的对话
+            system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
+            other_messages = messages[1:] if system_msg else messages
+            
+            # 从后往前保留，直到满足长度要求
+            kept_messages = []
+            current_chars = len(system_msg.get("content", "")) if system_msg else 0
+            
+            for msg in reversed(other_messages):
+                msg_chars = len(msg.get("content", ""))
+                if current_chars + msg_chars <= max_context_chars:
+                    kept_messages.insert(0, msg)
+                    current_chars += msg_chars
+                else:
+                    break
+            
+            messages = ([system_msg] if system_msg else []) + kept_messages
+            logger.info(f"二次截断后保留 {len(messages)} 条消息")
+        
         # 调用OpenAI API
+        max_output_tokens = settings.OPENAI_MAX_TOKENS or 4000
         response = await openai_client._call_api(
             messages=messages,
-            max_tokens=settings.OPENAI_MAX_TOKENS,
+            max_tokens=max_output_tokens,
             temperature=settings.OPENAI_TEMPERATURE
         )
         
@@ -244,8 +378,16 @@ async def chat_with_ai_stream(
         
         # 添加对话历史（如果存在）
         if request.conversation_history:
+            # 智能截断对话历史，确保不超过 token 限制
+            truncated_history = truncate_conversation_history(request.conversation_history)
+            
+            if len(truncated_history) < len(request.conversation_history):
+                logger.info(
+                    f"对话历史已截断: {len(request.conversation_history)} -> {len(truncated_history)} 条消息"
+                )
+            
             # 确保历史记录格式正确
-            for item in request.conversation_history:
+            for item in truncated_history:
                 if isinstance(item, dict) and "role" in item and "content" in item:
                     messages.append({
                         "role": item["role"],
@@ -258,13 +400,38 @@ async def chat_with_ai_stream(
             "content": request.message
         })
         
+        # 最终检查：如果总长度仍然过长，进行二次截断（保留最近的）
+        total_chars = sum(len(msg.get("content", "")) for msg in messages)
+        max_context_chars = get_max_context_chars()
+        if total_chars > max_context_chars:
+            logger.warning(f"消息总长度仍然过长 ({total_chars} 字符)，进行二次截断")
+            # 保留系统提示词和最近的对话
+            system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
+            other_messages = messages[1:] if system_msg else messages
+            
+            # 从后往前保留，直到满足长度要求
+            kept_messages = []
+            current_chars = len(system_msg.get("content", "")) if system_msg else 0
+            
+            for msg in reversed(other_messages):
+                msg_chars = len(msg.get("content", ""))
+                if current_chars + msg_chars <= max_context_chars:
+                    kept_messages.insert(0, msg)
+                    current_chars += msg_chars
+                else:
+                    break
+            
+            messages = ([system_msg] if system_msg else []) + kept_messages
+            logger.info(f"二次截断后保留 {len(messages)} 条消息")
+        
         async def generate_stream() -> AsyncGenerator[str, None]:
             """生成流式响应"""
             try:
                 # 调用OpenAI流式API
+                max_output_tokens = settings.OPENAI_MAX_TOKENS or 4000
                 async for chunk in openai_client._call_api_stream(
                     messages=messages,
-                    max_tokens=settings.OPENAI_MAX_TOKENS,
+                    max_tokens=max_output_tokens,
                     temperature=settings.OPENAI_TEMPERATURE
                 ):
                     if chunk.choices and len(chunk.choices) > 0:
