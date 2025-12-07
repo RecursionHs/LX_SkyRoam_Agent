@@ -37,6 +37,35 @@ const AIAssistant: React.FC = () => {
     }
   }, [visible, messages]);
 
+  // 监听来自外部的事件，用于设置初始消息上下文
+  useEffect(() => {
+    const handleSetContext = (event: CustomEvent) => {
+      const { context, openModal = true } = event.detail || {};
+      if (context) {
+        // 设置初始消息
+        const initialMessages: Message[] = [
+          {
+            role: 'assistant',
+            content: context,
+            timestamp: Date.now()
+          }
+        ];
+        setMessages(initialMessages);
+        
+        // 如果需要，自动打开对话框
+        if (openModal) {
+          setVisible(true);
+        }
+      }
+    };
+
+    window.addEventListener('ai-assistant:set-context', handleSetContext as EventListener);
+    
+    return () => {
+      window.removeEventListener('ai-assistant:set-context', handleSetContext as EventListener);
+    };
+  }, []);
+
   // 发送消息（流式）
   const handleSend = async () => {
     if (!inputValue.trim() || loading) return;

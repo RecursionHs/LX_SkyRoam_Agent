@@ -36,7 +36,8 @@ import {
   PictureOutlined,
   ShopOutlined,
   TagOutlined,
-  HomeOutlined
+  HomeOutlined,
+  MessageOutlined
 } from '@ant-design/icons';
 import { Badge } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -946,16 +947,59 @@ const TextPlanTab: React.FC<{ planId: number; planDetail: PlanDetail | null }> =
     };
   }, [planId]);
 
+  // 继续对话：将文本方案上下文传递到 AI 助手
+  const handleContinueConversation = () => {
+    if (!textPlan) {
+      message.warning('暂无方案内容');
+      return;
+    }
+    
+    // 构建上下文消息，包含方案信息和提示
+    const contextMessage = `以下是我为您生成的旅行方案：
+
+**目的地**: ${planDetail?.destination || '未知'}
+**行程天数**: ${planDetail?.duration_days || 0} 天
+
+${textPlan}
+
+---
+
+现在您可以针对这个方案进行提问或提出修改建议，我会根据您的需求进行调整。`;
+
+    // 触发自定义事件，通知 AI 助手设置上下文
+    const event = new CustomEvent('ai-assistant:set-context', {
+      detail: {
+        context: contextMessage,
+        openModal: true
+      }
+    });
+    window.dispatchEvent(event);
+    
+    message.success('已加载方案上下文，可以开始对话了');
+  };
+
   return (
     <Card className="glass-card">
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        <Alert
-          message="纯文本方案说明"
-          description="此方案由AI直接生成，基于大模型知识库，可能有滞后性，但主要景点信息通常是准确的。适用于快速概览目的地玩法。"
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
+        <Space style={{ width: '100%', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Alert
+            message="纯文本方案说明"
+            description="此方案由AI直接生成，基于大模型知识库，可能有滞后性，但主要景点信息通常是准确的。适用于快速概览目的地玩法。"
+            type="info"
+            showIcon
+            style={{ flex: 1, marginBottom: 0 }}
+          />
+          {textPlan && (
+            <Button
+              type="primary"
+              icon={<MessageOutlined />}
+              onClick={handleContinueConversation}
+              style={{ marginLeft: 16 }}
+            >
+              继续对话
+            </Button>
+          )}
+        </Space>
         
         {loading ? (
           <div style={{ textAlign: 'center', padding: '40px' }}>

@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, PlainTextRes
 import asyncio, time, json
 from app.core.config import settings
 from fastapi.encoders import jsonable_encoder
+from app.core.redis import get_cache, set_cache
 
 # 新增导入
 from app.core.security import get_current_user, get_current_user_optional, is_admin
@@ -553,8 +554,17 @@ async def get_text_plan(
     
     注意：此方案基于LLM知识库生成，可能有滞后性，但主要景点信息通常是准确的。
     适用于快速概览目的地玩法。
+    
+    结果会缓存到 Redis 1 小时。
     """
     try:
+        # 尝试从缓存获取
+        cache_key = f"text_plan:{plan_id}:{max_chars}"
+        cached_result = await get_cache(cache_key)
+        if cached_result:
+            logger.info(f"从缓存获取纯文本方案: plan_id={plan_id}")
+            return cached_result
+        
         service = TravelPlanService(db)
         # 尝试获取计划（私有或公开）
         plan = None
@@ -596,7 +606,7 @@ async def get_text_plan(
             max_chars=max_chars
         )
         
-        return {
+        result = {
             "plan_id": plan_id,
             "text_plan": text_plan,
             "destination": plan.destination,
@@ -604,6 +614,12 @@ async def get_text_plan(
             "generated_at": datetime.utcnow().isoformat(),
             "note": "此方案基于LLM知识库生成，可能有滞后性，但主要景点信息通常是准确的。"
         }
+        
+        # 缓存结果（1小时 = 3600秒）
+        await set_cache(cache_key, result, ttl=3600)
+        logger.info(f"纯文本方案已缓存: plan_id={plan_id}")
+        
+        return result
         
     except HTTPException:
         raise
