@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any
 from loguru import logger
 
 from app.core.database import get_async_db
-from app.models.destination import Destination, Attraction, Restaurant
+from app.models.destination import Destination
 from app.models.travel_plan import TravelPlan
 
 router = APIRouter()
@@ -138,10 +138,6 @@ async def get_destination(
     
     result = await db.execute(
         select(Destination)
-        .options(
-            selectinload(Destination.attractions),
-            selectinload(Destination.restaurants)
-        )
         .where(Destination.id == destination_id)
     )
     destination = result.scalar_one_or_none()
@@ -151,44 +147,3 @@ async def get_destination(
     
     return destination
 
-
-@router.get("/{destination_id}/attractions")
-async def get_destination_attractions(
-    destination_id: int,
-    skip: int = 0,
-    limit: int = 50,
-    db: AsyncSession = Depends(get_async_db)
-):
-    """获取目的地景点列表"""
-    from sqlalchemy import select
-    
-    result = await db.execute(
-        select(Attraction)
-        .where(Attraction.destination_id == destination_id)
-        .offset(skip)
-        .limit(limit)
-    )
-    attractions = result.scalars().all()
-    
-    return attractions
-
-
-@router.get("/{destination_id}/restaurants")
-async def get_destination_restaurants(
-    destination_id: int,
-    skip: int = 0,
-    limit: int = 50,
-    db: AsyncSession = Depends(get_async_db)
-):
-    """获取目的地餐厅列表"""
-    from sqlalchemy import select
-    
-    result = await db.execute(
-        select(Restaurant)
-        .where(Restaurant.destination_id == destination_id)
-        .offset(skip)
-        .limit(limit)
-    )
-    restaurants = result.scalars().all()
-    
-    return restaurants

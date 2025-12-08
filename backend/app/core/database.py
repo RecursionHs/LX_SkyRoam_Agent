@@ -320,7 +320,7 @@ async def create_tables_if_not_exists():
     """
     try:
         # 导入所有模型以确保它们被注册到 Base.metadata
-        from app.models import user, travel_plan, destination, activity
+        from app.models import user, travel_plan, destination
         
         engine = _get_async_engine_for_current_loop()
         
@@ -365,7 +365,7 @@ async def create_tables_directly():
     """
     try:
         # 导入所有模型以确保它们被注册
-        from app.models import user, travel_plan, destination, activity
+        from app.models import user, travel_plan, destination
         
         # 创建所有表
         engine = _get_async_engine_for_current_loop()
