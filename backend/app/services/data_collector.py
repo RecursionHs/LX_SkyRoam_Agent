@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.tools.mcp_client import MCPClient
 from app.tools.amap_mcp_client import AmapMCPClient
 from app.tools.city_resolver import CityResolver
+from app.tools.unified_map_service import UnifiedMapService
 from app.tools.baidu_maps_integration import (
     map_directions, 
     map_search_places, 
@@ -38,7 +39,8 @@ class DataCollector:
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
             proxies={}
         )
-        self.map_provider = settings.MAP_PROVIDER  # 地图服务提供商
+        self.map_provider = settings.MAP_PROVIDER  # 地图服务提供商（保留用于兼容）
+        self.unified_map_service = UnifiedMapService()  # 统一地图服务，支持多提供商回退
 
         # 基于行程天数动态控制原始数据量的参数（全部可通过 settings / 环境变量覆盖）
         # 这些只是“期望值”，不会强行按天精确匹配，而是用于估算需要多久的数据量
@@ -92,53 +94,18 @@ class DataCollector:
     async def get_destination_geocode_info(self, destination: str) -> Optional[Dict[str, Any]]:
         """
         统一的地理编码获取函数
-        优先使用高德地图，失败时回退到百度地图
+        使用统一地图服务，支持多提供商自动回退
         返回标准化的目的地地理信息
         """
         try:
             logger.info(f"获取目的地地理编码信息: {destination}")
             
-            # 首先尝试使用高德地图地理编码
-            try:
-                amap_coords = await self.amap_client.geocode(destination)
-                if amap_coords and amap_coords.get('lng') and amap_coords.get('lat'):
-                    logger.info(f"高德地图地理编码成功: {destination}")
-                    return {
-                        'destination': destination,
-                        'latitude': float(amap_coords['lat']),
-                        'longitude': float(amap_coords['lng']),
-                        'location_string': f"{amap_coords['lng']},{amap_coords['lat']}",  # 高德格式：经度,纬度
-                        'provider': 'amap',
-                        'formatted_address': amap_coords.get('formatted_address', destination),
-                        'city': amap_coords.get('city', ''),
-                        'district': amap_coords.get('district', ''),
-                        'province': amap_coords.get('province', '')
-                    }
-            except Exception as e:
-                logger.warning(f"高德地图地理编码失败: {destination}, 错误: {e}")
+            # 使用统一地图服务，自动处理回退
+            geocode_result = await self.unified_map_service.geocode(destination)
             
-            # 回退到百度地图地理编码
-            try:
-                from app.tools.baidu_maps_integration import map_geocode
-                baidu_result = await map_geocode(destination)
-                
-                if baidu_result.get("status") == 0:
-                    location_info = baidu_result.get("result", {}).get("location", {})
-                    if location_info and location_info.get('lng') and location_info.get('lat'):
-                        logger.info(f"百度地图地理编码成功: {destination}")
-                        return {
-                            'destination': destination,
-                            'latitude': float(location_info['lat']),
-                            'longitude': float(location_info['lng']),
-                            'location_string': f"{location_info['lng']},{location_info['lat']}",  # 经度,纬度格式
-                            'provider': 'baidu',
-                            'formatted_address': baidu_result.get("result", {}).get("formatted_address", destination),
-                            'city': '',  # 百度地图返回的结构可能不同，需要进一步解析
-                            'district': '',
-                            'province': ''
-                        }
-            except Exception as e:
-                logger.warning(f"百度地图地理编码失败: {destination}, 错误: {e}")
+            if geocode_result:
+                logger.info(f"地理编码成功: {destination}, 提供商: {geocode_result.get('provider', 'unknown')}")
+                return geocode_result
             
             logger.error(f"所有地理编码服务都失败: {destination}")
             return None
@@ -251,26 +218,26 @@ class DataCollector:
             # 理论上多天行程也不需要太多酒店候选，按配置取一个上限
             desired_hotel_count = max(self.plan_max_hotels_per_trip, 1)
             
-            # 优先使用高德地图周边搜索获取酒店信息
+            # 使用统一地图服务获取酒店信息（支持多提供商回退）
             try:
                 # 使用统一的地理编码函数获取目的地坐标
                 geocode_info = await self.get_destination_geocode_info(destination)
                 if geocode_info:
                     location = geocode_info['location_string']
                     
-                    # 使用高德地图周边搜索酒店
-                    amap_hotels = await self.amap_client.search_places_around(
+                    # 使用统一地图服务周边搜索酒店
+                    hotels = await self.unified_map_service.search_places_around(
                         location=location,
                         keywords="酒店",
                         types="100000",  # 住宿服务
                         radius=10000,    # 10公里范围
-                        offset=20
+                        count=20
                     )
                     
-                    # 转换高德地图数据格式
-                    for hotel in amap_hotels:
+                    # 转换统一格式数据
+                    for hotel in hotels:
                         hotel_item = {
-                            "id": f"amap_hotel_{hotel.get('id', len(hotel_data) + 1)}",
+                            "id": f"hotel_{hotel.get('id', len(hotel_data) + 1)}",
                             "name": hotel.get("name", "未知酒店"),
                             "address": hotel.get("address", "地址未知"),
                             "rating": float(hotel.get("rating", 0)) if hotel.get("rating") else 4.0,
@@ -281,23 +248,20 @@ class DataCollector:
                             "check_in": start_date.strftime("%Y-%m-%d"),
                             "check_out": end_date.strftime("%Y-%m-%d"),
                             "images": [],
-                            "coordinates": {
-                                "lng": float(hotel.get("location", "0,0").split(",")[0]),
-                                "lat": float(hotel.get("location", "0,0").split(",")[1])
-                            } if hotel.get("location") else {},
+                            "coordinates": hotel.get("coordinates", {}),
                             "star_rating": self._estimate_star_rating(hotel),
                             "distance": hotel.get("distance", "未知"),
-                            "phone": hotel.get("tel", ""),
-                            "source": "高德地图周边搜索"
+                            "phone": hotel.get("phone", ""),
+                            "source": hotel.get("source", "地图API")
                         }
                         hotel_data.append(hotel_item)
                     
-                    logger.info(f"从高德地图周边搜索获取到 {len(amap_hotels)} 条酒店数据")
+                    logger.info(f"从统一地图服务获取到 {len(hotels)} 条酒店数据")
                 else:
-                    logger.warning(f"无法获取 {destination} 的坐标，跳过高德地图周边搜索")
+                    logger.warning(f"无法获取 {destination} 的坐标，跳过酒店搜索")
                 
             except Exception as e:
-                logger.warning(f"高德地图酒店周边搜索调用失败: {e}")
+                logger.warning(f"统一地图服务酒店搜索失败: {e}")
             
             # 如果数据不足，使用MCP工具补充
             if len(hotel_data) < desired_hotel_count:
@@ -439,72 +403,68 @@ class DataCollector:
 
             desired_min_attractions = max(self.plan_min_attractions_per_day * days, 1)
             
-            # 根据地图服务提供商收集景点数据
+            # 使用统一地图服务收集景点数据（支持多提供商回退）
             try:
-                if self.map_provider == "amap":
-                    logger.info(f"使用高德地图MCP服务收集景点数据: {destination}")
-                    await self._collect_amap_attraction_data(destination, attraction_data)
-                else:
-                    logger.info(f"使用百度地图功能收集景点数据: {destination}")
-                    
-                    # 搜索景点
-                    places_result = await map_search_places(
-                        query="景点",
-                        region=destination,
-                        tag="风景名胜",
-                        is_china="true"
-                    )
-                    
-                    if places_result.get("status") == 0:
-                        places = places_result.get("result", {}).get("items", [])
-                        for place in places:  # 先不过早裁剪，后面统一根据天数裁剪
-                            attraction_item = {
-                                "name": place.get("name", "景点"),
-                                "category": "风景名胜",
-                                "description": place.get("detail_info", {}).get("tag", "热门景点"),
-                                "price": "免费" if place.get("detail_info", {}).get("price") == "0" else "收费",
-                                "rating": place.get("detail_info", {}).get("overall_rating", "4.5"),
-                                "address": place.get("address", ""),
-                                "coordinates": {
-                                    "lat": place.get("location", {}).get("lat"),
-                                    "lng": place.get("location", {}).get("lng")
-                                },
-                                "opening_hours": place.get("detail_info", {}).get("open_time", "全天开放"),
-                                "source": "百度地图API"
-                            }
-                            attraction_data.append(attraction_item)
+                logger.info(f"使用统一地图服务收集景点数据: {destination}")
                 
-                    # 搜索博物馆
-                    museum_result = await map_search_places(
-                        query="博物馆",
-                        region=destination,
-                        tag="科教文化服务",
-                        is_china="true"
+                # 先获取目的地坐标
+                geocode_info = await self.get_destination_geocode_info(destination)
+                if geocode_info:
+                    center_location = geocode_info['location_string']
+                    
+                    # 使用统一地图服务进行周边搜索
+                    # 搜索景点
+                    places = await self.unified_map_service.search_places_around(
+                        location=center_location,
+                        keywords="景点",
+                        types="110000",  # 风景名胜
+                        radius=20000,    # 20公里半径
+                        count=20
                     )
                     
-                    if museum_result.get("status") == 0:
-                        museums = museum_result.get("result", {}).get("items", [])
-                        for museum in museums:  # 同样先全部收集，后面按天数控制总量
-                            attraction_item = {
-                                "name": museum.get("name", "博物馆"),
-                                "category": "博物馆",
-                                "description": museum.get("detail_info", {}).get("tag", "文化景点"),
-                                "price": "免费" if museum.get("detail_info", {}).get("price") == "0" else "收费",
-                                "rating": museum.get("detail_info", {}).get("overall_rating", "4.3"),
-                                "address": museum.get("address", ""),
-                                "coordinates": {
-                                    "lat": museum.get("location", {}).get("lat"),
-                                    "lng": museum.get("location", {}).get("lng")
-                                },
-                                "opening_hours": museum.get("detail_info", {}).get("open_time", "09:00-17:00"),
-                                "source": "百度地图API"
-                            }
-                            attraction_data.append(attraction_item)
+                    for place in places:
+                        attraction_item = {
+                            "name": place.get("name", "景点"),
+                            "category": place.get("category", "风景名胜"),
+                            "description": place.get("description", "热门景点"),
+                            "price": "免费",  # 默认值，实际应从place数据中提取
+                            "rating": place.get("rating", 4.5),
+                            "address": place.get("address", ""),
+                            "coordinates": place.get("coordinates", {}),
+                            "opening_hours": "全天开放",
+                            "source": place.get("source", "地图API")
+                        }
+                        attraction_data.append(attraction_item)
                     
-                    logger.info(f"从百度地图API获取到 {len(attraction_data)} 条景点数据")
+                    # 搜索博物馆
+                    museums = await self.unified_map_service.search_places_around(
+                        location=center_location,
+                        keywords="博物馆",
+                        types="140700",  # 科教文化服务
+                        radius=20000,
+                        count=10
+                    )
+                    
+                    for museum in museums:
+                        attraction_item = {
+                            "name": museum.get("name", "博物馆"),
+                            "category": "博物馆",
+                            "description": museum.get("description", "文化景点"),
+                            "price": "免费",
+                            "rating": museum.get("rating", 4.3),
+                            "address": museum.get("address", ""),
+                            "coordinates": museum.get("coordinates", {}),
+                            "opening_hours": "09:00-17:00",
+                            "source": museum.get("source", "地图API")
+                        }
+                        attraction_data.append(attraction_item)
+                    
+                    logger.info(f"从统一地图服务获取到 {len(attraction_data)} 条景点数据")
+                else:
+                    logger.warning(f"无法获取 {destination} 的坐标，跳过周边搜索")
                 
             except Exception as e:
-                logger.warning(f"百度地图景点API调用失败: {e}")
+                logger.warning(f"统一地图服务景点搜索失败: {e}")
             
             # 如果数据不足，使用MCP工具补充
             if len(attraction_data) < desired_min_attractions:
@@ -738,9 +698,9 @@ class DataCollector:
                     logger.warning(f"百度地图餐厅API调用失败: {e}")
             
             if restaurant_source in ["amap", "both"]:
-                # 使用高德地图周边搜索
+                # 使用统一地图服务周边搜索（支持多提供商回退）
                 try:
-                    logger.info(f"使用高德地图周边搜索收集餐厅数据: {destination}")
+                    logger.info(f"使用统一地图服务收集餐厅数据: {destination}")
                     
                     # 使用统一的地理编码函数获取中心点坐标
                     geocode_info = await self.get_destination_geocode_info(destination)
@@ -751,46 +711,43 @@ class DataCollector:
                         center_location = geocode_info['location_string']
                     
                     if center_location:
-                        # 使用周边搜索获取餐厅数据
-                        amap_restaurants = await self.amap_client.search_places_around(
+                        # 使用统一地图服务周边搜索获取餐厅数据
+                        restaurants = await self.unified_map_service.search_places_around(
                             location=center_location,
                             keywords="餐厅",
                             types="050000",  # 餐饮服务
                             radius=10000,    # 10公里半径
-                            offset=20
+                            count=20
                         )
                         
-                        for amap_restaurant in amap_restaurants:  # 不提前裁剪
+                        for restaurant in restaurants:
                             restaurant_item = {
-                                "name": amap_restaurant.get("name", "餐厅"),
-                                "cuisine": amap_restaurant.get("category", "中餐"),
-                                "rating": amap_restaurant.get("rating", 4.0),
-                                "cost": amap_restaurant.get("cost", ""),  # 原始人均消费字符串
-                                "address": amap_restaurant.get("address", ""),
-                                "coordinates": amap_restaurant.get("coordinates", {}),
-                                "location": amap_restaurant.get("location", ""),
-                                "phone": amap_restaurant.get("phone", ""),
-                                "business_area": amap_restaurant.get("business_area", ""),
-                                "cityname": amap_restaurant.get("cityname", ""),
-                                "adname": amap_restaurant.get("adname", ""),
-                                "opening_hours": "10:00-22:00",  # 高德地图不提供营业时间
-                                "specialties": amap_restaurant.get("tags", ["特色菜"]),
-                                "photos": amap_restaurant.get("photos", []),  # 餐厅图片
-                                "typecode": amap_restaurant.get("typecode", ""),
-                                "distance": amap_restaurant.get("distance", ""),
-                                "source": "高德地图周边搜索"
+                                "name": restaurant.get("name", "餐厅"),
+                                "cuisine": restaurant.get("category", "中餐"),
+                                "rating": restaurant.get("rating", 4.0),
+                                "cost": "",  # 统一格式中可能没有cost字段
+                                "address": restaurant.get("address", ""),
+                                "coordinates": restaurant.get("coordinates", {}),
+                                "location": restaurant.get("location", ""),
+                                "phone": restaurant.get("phone", ""),
+                                "business_area": "",
+                                "cityname": "",
+                                "adname": "",
+                                "opening_hours": "10:00-22:00",
+                                "specialties": [],
+                                "photos": [],
+                                "typecode": "",
+                                "distance": restaurant.get("distance", ""),
+                                "source": restaurant.get("source", "地图API")
                             }
-                            restaurant_data.append(self._apply_price_metadata(
-                                restaurant_item,
-                                amap_restaurant.get("cost")
-                            ))
+                            restaurant_data.append(self._apply_price_metadata(restaurant_item))
                         
-                        logger.info(f"从高德地图周边搜索获取到 {len(amap_restaurants)} 条餐厅数据")
+                        logger.info(f"从统一地图服务获取到 {len(restaurants)} 条餐厅数据")
                     else:
-                        logger.warning(f"无法获取 {destination} 的坐标，跳过高德地图周边搜索")
+                        logger.warning(f"无法获取 {destination} 的坐标，跳过餐厅搜索")
                     
                 except Exception as e:
-                    logger.warning(f"高德地图餐厅周边搜索调用失败: {e}")
+                    logger.warning(f"统一地图服务餐厅搜索失败: {e}")
             
             # 如果数据仍然不足，使用MCP工具补充
             if len(restaurant_data) < desired_min_restaurants:
@@ -1382,49 +1339,10 @@ class DataCollector:
         destination: str, 
         attraction_data: List[Dict[str, Any]]
     ):
-        """使用高德地图周边搜索收集景点数据"""
-        try:
-            # 首先获取目的地的坐标
-            city_name = await self.city_resolver.resolve_city(destination)
-            
-            # 使用统一的地理编码函数获取中心点坐标
-            geocode_info = await self.get_destination_geocode_info(destination)
-            
-            center_location = None
-            if geocode_info:
-                # 使用统一格式的坐标字符串
-                center_location = geocode_info['location_string']
-            
-            if center_location:
-                # 使用周边搜索获取景点数据
-                attractions = await self.amap_client.search_places_around(
-                    location=center_location,
-                    keywords="景点",
-                    types="110000",  # 风景名胜
-                    radius=20000,    # 20公里半径
-                    offset=20
-                )
-                
-                if attractions:
-                    attraction_data.extend(attractions)
-                    logger.info(f"从高德地图周边搜索获取到 {len(attractions)} 条景点数据")
-                
-                # 搜索博物馆
-                museums = await self.amap_client.search_places_around(
-                    location=center_location,
-                    keywords="博物馆",
-                    types="140700",  # 科教文化服务
-                    radius=20000,    # 20公里半径
-                    offset=10
-                )
-                
-                if museums:
-                    attraction_data.extend(museums)
-                    logger.info(f"从高德地图周边搜索获取到 {len(museums)} 条博物馆数据")
-            else:
-                logger.warning(f"无法获取 {destination} 的坐标，跳过高德地图周边搜索")
-        except Exception as e:
-            logger.warning(f"高德地图景点数据收集失败: {e}")
+        """使用高德地图周边搜索收集景点数据（已废弃，改用统一地图服务）"""
+        # 此方法已废弃，统一使用统一地图服务
+        logger.warning("_collect_amap_attraction_data 已废弃，请使用统一地图服务")
+        pass
     
     async def collect_xiaohongshu_data(
         self, 
@@ -1567,6 +1485,10 @@ class DataCollector:
             pass
         try:
             await self.amap_client.close()
+        except Exception:
+            pass
+        try:
+            await self.unified_map_service.close()
         except Exception:
             pass
         try:

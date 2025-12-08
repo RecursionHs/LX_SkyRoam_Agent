@@ -15,11 +15,13 @@ router = APIRouter()
 
 AMAP_API_KEY = settings.AMAP_API_KEY
 BAIDU_API_KEY = settings.BAIDU_MAPS_API_KEY
+TIANDITU_API_KEY = getattr(settings, 'TIANDITU_API_KEY', '')
+TIANDITU_API_BASE = getattr(settings, 'TIANDITU_API_BASE', 'https://api.tianditu.gov.cn')
 
 
 @router.get("/static")
 async def get_static_map(
-    provider: str = Query(..., description="地图提供商: amap 或 baidu"),
+    provider: str = Query(..., description="地图提供商: amap、baidu 或 tianditu"),
     longitude: float = Query(..., description="经度"),
     latitude: float = Query(..., description="纬度"),
     zoom: int = Query(13, description="缩放级别"),
@@ -76,6 +78,21 @@ async def get_static_map(
             if title:
                 params["markers"] = f"{longitude},{latitude}"
                 params["markerStyles"] = "m,A"
+        
+        elif provider == "tianditu":
+            if not TIANDITU_API_KEY:
+                img = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO1f4iIAAAAASUVORK5CYII=")
+                return Response(content=img, media_type="image/png", headers={"X-Map-Fallback": "true", "Cache-Control": "public, max-age=60", "Access-Control-Allow-Origin": "*"})
+            
+            # 构建天地图静态地图URL
+            url = f"{TIANDITU_API_BASE}/staticimage"
+            params = {
+                "center": f"{longitude},{latitude}",
+                "width": str(width),
+                "height": str(height),
+                "zoom": str(zoom),
+                "tk": TIANDITU_API_KEY
+            }
             
         else:
             img = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO1f4iIAAAAASUVORK5CYII=")
@@ -147,6 +164,7 @@ async def map_health():
         "providers": {
             "amap_configured": bool(AMAP_API_KEY),
             "baidu_configured": bool(BAIDU_API_KEY),
+            "tianditu_configured": bool(TIANDITU_API_KEY),
             "osm_supported": True
         }
     }

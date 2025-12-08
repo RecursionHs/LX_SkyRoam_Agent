@@ -3,6 +3,7 @@
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 from typing import List, Optional
 import os
 
@@ -95,9 +96,13 @@ class Settings(BaseSettings):
     # MCP服务API密钥（通过环境变量传递给MCP服务）
     BAIDU_MAPS_API_KEY: str = os.getenv("BAIDU_MAPS_API_KEY", "")  # 百度地图API密钥
     AMAP_API_KEY: str = os.getenv("AMAP_API_KEY", "")  # 高德地图API密钥
+    TIANDITU_API_KEY: str = os.getenv("TIANDITU_API_KEY", "")  # 天地图API密钥
+    TIANDITU_API_BASE: str = os.getenv("TIANDITU_API_BASE", "https://api.tianditu.gov.cn")  # 天地图API基础URL
     
     # 地图服务提供商配置
-    MAP_PROVIDER: str = os.getenv("MAP_PROVIDER", "amap")  # 地图服务提供商: "baidu" 或 "amap"
+    MAP_PROVIDER: str = os.getenv("MAP_PROVIDER", "amap")  # 地图服务提供商: "baidu" 或 "amap" 或 "tianditu"
+    # 地图服务回退顺序（当主提供商失败时，按顺序尝试，逗号分隔的字符串）
+    MAP_PROVIDER_FALLBACK: str = os.getenv("MAP_PROVIDER_FALLBACK", "amap,baidu,tianditu")
     # 地点输入框提示配置
     MAP_INPUT_TIPS_ENABLED: bool = os.getenv("MAP_INPUT_TIPS_ENABLED", "true").lower() == "true"  # 输入提示开关
     MAP_TIPS_RATE_LIMIT_MAX: int = int(os.getenv("MAP_TIPS_RATE_LIMIT_MAX", "10"))

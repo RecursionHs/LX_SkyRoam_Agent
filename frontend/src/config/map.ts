@@ -18,7 +18,7 @@ export const MAP_CONFIG = {
 };
 
 // 地图提供商类型
-export type MapProvider = 'amap' | 'baidu';
+export type MapProvider = 'amap' | 'baidu' | 'tianditu';
 
 // 地图模式类型
 export type MapMode = 'static' | 'leaflet' | 'external';

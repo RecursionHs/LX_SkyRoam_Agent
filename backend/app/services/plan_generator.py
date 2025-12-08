@@ -2907,12 +2907,12 @@ class PlanGenerator:
 2. 景点定位数据仅作为补充参考，当小红书数据不足时可以参考，但不能依赖这些数据作为主要依据；
 3. 确保推荐的景点来自小红书用户的真实分享，保证行程的真实性和可操作性。
 
-请返回JSON对象，字段与示例一致：{{
+请返回JSON对象，字段与示例一致，estimated_cost根据已知信息估算：{{
   "day": {day},
   "date": "{date_str}",
   "schedule": [...],
   "attractions": [...],
-  "estimated_cost": 参考费用,
+  "estimated_cost": 100,
   "daily_tips": [...]
 }}
 务必优先使用小红书数据中的景点，并给出实用游览建议。"""

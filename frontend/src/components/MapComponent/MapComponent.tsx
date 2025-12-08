@@ -142,7 +142,8 @@ const MapComponent: React.FC<MapComponentProps> = ({
               style={{ width: 100 }}
             >
               <Option value="amap">高德地图</Option>
-              {/* <Option value="baidu">百度地图</Option> */}
+              <Option value="baidu">百度地图</Option>
+              <Option value="tianditu">天地图</Option>
             </Select>
           </Space>
         </div>
