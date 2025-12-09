@@ -41,6 +41,13 @@ async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_async_db),
 ) -> User:
+    # oauth2_scheme returns None when Authorization header is missing because auto_error=False
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="缺少认证令牌",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="无法验证凭证",
