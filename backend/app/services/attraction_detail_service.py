@@ -124,6 +124,8 @@ class AttractionDetailService:
                 attraction["email"] = detail.email
             if detail.wechat:
                 attraction["wechat"] = detail.wechat
+            if detail.image_url and not attraction.get("image_url"):
+                attraction["image_url"] = detail.image_url
             
             # 合并价格信息（优先级：详细信息 > 原始数据）
             if detail.ticket_price is not None:
@@ -166,6 +168,11 @@ class AttractionDetailService:
                 for key, value in detail.extra_info.items():
                     if key not in attraction or not attraction[key]:
                         attraction[key] = value
+                # 如果 extra_info 中包含评分信息，单独拎出来方便前端使用
+                if "rating_level" in detail.extra_info and not attraction.get("rating_level"):
+                    attraction["rating_level"] = detail.extra_info.get("rating_level")
+                if "review_count" in detail.extra_info and attraction.get("review_count") is None:
+                    attraction["review_count"] = detail.extra_info.get("review_count")
             
             # 添加数据来源标记
             attraction["detail_source"] = "manual"

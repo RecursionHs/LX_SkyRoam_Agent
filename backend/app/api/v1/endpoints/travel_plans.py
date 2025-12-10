@@ -4,7 +4,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
+from typing import List, Optional, Any
 from datetime import datetime, date
 
 from app.core.database import get_async_db
@@ -28,7 +28,10 @@ from app.core.redis import get_cache, set_cache
 
 # 新增导入
 from app.core.security import get_current_user, get_current_user_optional, is_admin
+from app.services.attraction_detail_service import AttractionDetailService
+from app.models.attraction_detail import AttractionDetail
 from app.models.user import User
+from sqlalchemy import select
 from app.tasks.travel_plan_tasks import (
     generate_travel_plans_task as celery_generate_travel_plans_task,
     refine_travel_plan_task as celery_refine_travel_plan_task,
@@ -138,7 +141,9 @@ async def get_public_travel_plan(
     plan = await service.get_public_travel_plan(plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="公开旅行计划不存在")
-    return TravelPlanResponse.from_orm(plan)
+    plan_data = TravelPlanResponse.from_orm(plan).dict()
+    plan_data = await _enrich_plan_with_attraction_details(plan_data, db)
+    return plan_data
 
 @router.put("/{plan_id}/publish")
 async def publish_travel_plan(
@@ -188,7 +193,88 @@ async def get_travel_plan(
         raise HTTPException(status_code=404, detail="旅行计划不存在")
     if not (is_admin(current_user) or plan.user_id == current_user.id):
         raise HTTPException(status_code=403, detail="无权访问该计划")
-    return TravelPlanResponse.from_orm(plan)
+    plan_data = TravelPlanResponse.from_orm(plan).dict()
+    plan_data = await _enrich_plan_with_attraction_details(plan_data, db)
+    return plan_data
+
+
+async def _enrich_plan_with_attraction_details(plan_data: dict, db: AsyncSession) -> dict:
+    """为生成的方案补充手动维护的景点详细信息，减少对LLM输出的依赖。"""
+    try:
+        destination = plan_data.get("destination")
+        if not destination:
+            return plan_data
+
+        # 批量加载该目的地的景点详情，按名称建立索引（小写去空格）
+        result = await db.execute(
+            select(AttractionDetail).where(AttractionDetail.destination == destination)
+        )
+        details = result.scalars().all()
+        if not details:
+            return plan_data
+
+        detail_map = {d.name.strip().lower(): d for d in details if d.name}
+
+        def merge_one(attraction: Any) -> Any:
+            if attraction is None:
+                return attraction
+            if isinstance(attraction, str):
+                base = {"name": attraction}
+            elif isinstance(attraction, dict):
+                base = dict(attraction)
+            else:
+                return attraction
+
+            name = (base.get("name") or "").strip().lower()
+            if not name:
+                return base
+
+            detail = detail_map.get(name)
+            if not detail:
+                return base
+
+            return AttractionDetailService.merge_detail_into_attraction(base, detail)
+
+        # 遍历 generated_plans -> daily_itineraries -> attractions
+        generated_plans = plan_data.get("generated_plans")
+        if isinstance(generated_plans, list):
+            for plan in generated_plans:
+                if not isinstance(plan, dict):
+                    continue
+                daily_list = plan.get("daily_itineraries")
+                if not isinstance(daily_list, list):
+                    continue
+                for day in daily_list:
+                    if not isinstance(day, dict):
+                        continue
+                    attractions = day.get("attractions")
+                    if isinstance(attractions, list):
+                        merged = [merge_one(a) for a in attractions]
+                        day["attractions"] = merged
+
+        # 同步 selected_plan（如果有且与 generated_plans 对应）
+        selected_plan = plan_data.get("selected_plan")
+        if isinstance(selected_plan, dict) and isinstance(generated_plans, list):
+            try:
+                # 通过 title/type 找到对应索引
+                sel_title = selected_plan.get("title")
+                sel_type = selected_plan.get("type")
+                idx = next(
+                    (i for i, p in enumerate(generated_plans)
+                     if isinstance(p, dict)
+                     and p.get("title") == sel_title
+                     and p.get("type") == sel_type),
+                    None
+                )
+                if idx is not None and isinstance(generated_plans[idx], dict):
+                    plan_data["selected_plan"] = generated_plans[idx]
+            except Exception:
+                pass
+
+        return plan_data
+    except Exception as e:
+        logger.warning(f"补充景点详细信息失败（忽略，不阻塞主流程）: {e}")
+        return plan_data
 
 
 @router.put("/{plan_id}", response_model=TravelPlanResponse)
