@@ -1225,10 +1225,17 @@ const TravelPlanPage: React.FC = () => {
               <Col xs={24} sm={12}>
                 <Form.Item
                   name="budget"
-                  label="预算范围(单项开支)"
+                  label={
+                    <span>
+                      总预算范围
+                      <Tooltip title="这是整个行程的总预算，系统会自动分配：30-35%用于航班和酒店，65-70%用于每日餐饮、景点和交通">
+                        <span style={{ marginLeft: 4, color: '#1890ff', cursor: 'help' }}>ℹ️</span>
+                      </Tooltip>
+                    </span>
+                  }
                   rules={[{ required: true, message: '请选择预算范围' }]}
                 >
-                  <Select placeholder="选择预算范围">
+                  <Select placeholder="选择总预算范围">
                     <Option value={200}>200元以下</Option>
                     <Option value={500}>500元以下</Option>
                     <Option value={1000}>1000元以下</Option>
@@ -1236,6 +1243,8 @@ const TravelPlanPage: React.FC = () => {
                     <Option value={5000}>3000-5000元</Option>
                     <Option value={10000}>5000-10000元</Option>
                     <Option value={20000}>10000元以上</Option>
+                    <Option value={30000}>20000-30000元</Option>
+                    <Option value={50000}>50000元以上</Option>
                   </Select>
                 </Form.Item>
               </Col>

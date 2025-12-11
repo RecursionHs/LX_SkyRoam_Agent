@@ -2529,15 +2529,25 @@ class PlanGenerator:
         """生成住宿方案（按天拆分）"""
         try:
             total_days = max(int(getattr(plan, "duration_days", 0) or 1), 1)
-            per_day_budget = self._get_per_day_budget(plan)
+            # 住宿使用固定支出预算，按天均分
+            fixed_budget = self._get_fixed_budget(plan)
+            logger.warning(f"计算后的固定住宿支出预算: {fixed_budget}")
+            per_day_accommodation_budget = (
+                fixed_budget / total_days if fixed_budget and total_days > 0 else None
+            )
             notes_str = self._format_xiaohongshu_data_for_prompt(
                 raw_data.get("xiaohongshu_notes", []) if raw_data else [], plan.destination
             )
 
             def build_prompts(day: int, date_str: str, daily_budget: Optional[float]):
-                budget_info = (
-                    f"{daily_budget:.0f}元" if isinstance(daily_budget, (int, float)) else "未指定"
-                )
+                # 对于住宿，如果是第一天，预算可以包含航班费用；其他天主要是酒店
+                if day == 1 and daily_budget:
+                    # 第一天可以包含航班费用，预算可以稍高
+                    budget_info = f"{daily_budget * 1.5:.0f}元（含航班）"
+                else:
+                    budget_info = (
+                        f"{daily_budget:.0f}元" if isinstance(daily_budget, (int, float)) else "未指定"
+                    )
                 intl_hint = ""
                 if is_international:
                     intl_hint = (
@@ -2592,7 +2602,7 @@ class PlanGenerator:
                 module_name="住宿方案",
                 total_days=total_days,
                 start_date=getattr(plan, "start_date", None),
-                per_day_budget=per_day_budget,
+                per_day_budget=per_day_accommodation_budget,
                 build_prompts=build_prompts,
                 llm_requester=self._request_llm_json,
                 fallback_builder=lambda d, date: build_simple_accommodation_day(
@@ -2650,6 +2660,7 @@ class PlanGenerator:
         try:
             total_days = max(int(getattr(plan, "duration_days", 0) or 1), 1)
             per_day_budget = self._get_per_day_budget(plan)
+            logger.warning(f"计算后的每日餐饮预算: {per_day_budget}")
             notes_str = self._format_xiaohongshu_data_for_prompt(
                 raw_data.get("xiaohongshu_notes", []) if raw_data else [], plan.destination
             )
@@ -2746,10 +2757,17 @@ class PlanGenerator:
                 raw_data.get("xiaohongshu_notes", []) if raw_data else [], plan.destination
             )
 
+            # 交通模块也使用每日可变预算，但预算限制较宽松（因为交通费用通常较小）
+            per_day_budget = self._get_per_day_budget(plan)
+            logger.warning(f"计算后的每日交通预算: {per_day_budget}")
+            
             def build_prompts(day: int, date_str: str, daily_budget: Optional[float]):
                 stage = self._determine_transport_stage(day, total_days)
                 stage_meta = self._build_transport_stage_instruction(
                     stage, origin_city, destination_city
+                )
+                budget_info = (
+                    f"{daily_budget:.0f}元" if isinstance(daily_budget, (int, float)) else "未指定"
                 )
                 intl_hint = ""
                 if is_international:
@@ -2766,7 +2784,7 @@ class PlanGenerator:
 - 出发地：{origin_city}
 - 目的地：{plan.destination}
 - 出行方式偏好：{plan.transportation or '未指定'}
-- 预算：{plan.budget or '未指定'}元
+- 当日交通预算：{budget_info}（交通费用通常较小，请合理规划）
 - 人数：{(preferences or {}).get('travelers', getattr(plan, 'travelers', 1))}
 - 年龄群体：{', '.join((preferences or {}).get('ageGroups', [])) if (preferences or {}).get('ageGroups') else '未指定'}
 - 活动偏好：{', '.join((preferences or {}).get('activity_preference', [])) if (preferences or {}).get('activity_preference') else '未指定'}
@@ -2827,7 +2845,7 @@ class PlanGenerator:
                 module_name="交通方案",
                 total_days=total_days,
                 start_date=getattr(plan, "start_date", None),
-                per_day_budget=None,
+                per_day_budget=per_day_budget,
                 build_prompts=build_prompts,
                 llm_requester=self._request_llm_json,
                 fallback_builder=lambda d, date: build_simple_transportation_plan(
@@ -2859,6 +2877,7 @@ class PlanGenerator:
         try:
             total_days = max(int(getattr(plan, "duration_days", 0) or len(attractions_data) or 1), 1)
             per_day_budget = self._get_per_day_budget(plan)
+            logger.warning(f"计算后的每日景点预算: {per_day_budget}")
             notes_str = self._format_xiaohongshu_data_for_prompt(
                 raw_data.get("xiaohongshu_notes", []) if raw_data else [], plan.destination
             )
@@ -3139,7 +3158,15 @@ class PlanGenerator:
             return []
 
     def _get_per_day_budget(self, plan: Any) -> Optional[float]:
-        """计算日均预算"""
+        """
+        计算每日可变预算（用于餐饮、景点、交通）
+        
+        将总预算分为两部分：
+        1. 固定支出（航班+酒店）：占总预算的30-35%
+        2. 每日可变支出（餐饮+景点+交通）：占总预算的65-70%，按天均分
+        
+        这样可以避免每个模块都使用总预算/天数，导致预算被重复使用的问题。
+        """
         total_budget = getattr(plan, "budget", None)
         total_days = getattr(plan, "duration_days", None)
         if not total_budget or not total_days:
@@ -3149,7 +3176,50 @@ class PlanGenerator:
             total_days = int(total_days)
             if total_days <= 0:
                 return None
-            return max(total_budget / total_days, 0)
+            
+            # 固定支出（航班+酒店）占30-35%，每日可变支出占65-70%
+            # 根据预算规模调整比例：预算越大，固定支出比例可以稍高
+            if total_budget >= 10000:
+                fixed_ratio = 0.35  # 高预算时，固定支出占35%
+            elif total_budget >= 5000:
+                fixed_ratio = 0.33  # 中等预算时，固定支出占33%
+            else:
+                fixed_ratio = 0.30  # 低预算时，固定支出占30%
+            
+            variable_budget = total_budget * (1 - fixed_ratio)
+            per_day_budget = variable_budget / total_days
+            
+            logger.debug(
+                f"预算分配：总预算={total_budget:.0f}元，"
+                f"固定支出（航班+酒店）={total_budget * fixed_ratio:.0f}元，"
+                f"每日可变预算={per_day_budget:.0f}元/天"
+            )
+            
+            return max(per_day_budget, 0)
+        except (TypeError, ValueError):
+            return None
+    
+    def _get_fixed_budget(self, plan: Any) -> Optional[float]:
+        """
+        计算固定支出预算（用于航班+酒店）
+        
+        固定支出占总预算的30-35%，根据总预算规模调整比例。
+        """
+        total_budget = getattr(plan, "budget", None)
+        if not total_budget:
+            return None
+        try:
+            total_budget = float(total_budget)
+            
+            # 根据预算规模调整比例
+            if total_budget >= 10000:
+                fixed_ratio = 0.35
+            elif total_budget >= 5000:
+                fixed_ratio = 0.33
+            else:
+                fixed_ratio = 0.30
+            
+            return max(total_budget * fixed_ratio, 0)
         except (TypeError, ValueError):
             return None
 
