@@ -657,7 +657,7 @@ class AmapMCPClient:
                 if casts:
                     weather_data["recommendations"] = self._generate_weather_recommendations(casts)
             
-            logger.info(f"解析高德地图天气数据成功: {weather_data['location']}")
+            logger.debug(f"解析高德地图天气数据成功: {weather_data['location']}")
             return weather_data
             
         except Exception as e:
@@ -711,7 +711,7 @@ class AmapMCPClient:
             # 命中缓存直接返回（即使API密钥缺失也可用）
             cached = await get_cache(cache_key_str)
             if cached:
-                logger.info(f"地理编码命中缓存: address={addr_norm}, city={city_norm}")
+                logger.debug(f"地理编码命中缓存: address={addr_norm}, city={city_norm}")
                 return cached
 
             if not self.api_key:

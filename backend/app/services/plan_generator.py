@@ -4,7 +4,6 @@
 
 from typing import List, Dict, Any, Optional, Callable, Set, Tuple
 from datetime import datetime, timedelta
-from types import SimpleNamespace
 from dataclasses import dataclass, field
 import copy
 from loguru import logger
@@ -14,6 +13,7 @@ import asyncio
 import time
 import traceback
 from functools import wraps
+from enum import Enum
 from app.tools.openai_client import openai_client
 from app.core.config import settings
 from app.services.plan_generation import (
@@ -25,6 +25,10 @@ from app.services.plan_generation import (
     build_simple_transportation_plan,
     build_simple_accommodation_day,
     get_day_entry_from_list,
+)
+from .plan_generation import (
+    BudgetCalculator,
+    DataProcessor,
 )
 
 DOMESTIC_KEYWORDS_CN = {
@@ -158,6 +162,9 @@ class PlanGenerator:
         # 延迟导入避免循环依赖
         self._data_collector = None
         self._destination_scope_cache: Dict[str, str] = {}
+
+        self.budget_calculator = BudgetCalculator()
+        self.data_processor = DataProcessor()
     
     @property
     def data_collector(self):
@@ -167,18 +174,6 @@ class PlanGenerator:
             self._data_collector = DataCollector()
         return self._data_collector
     
-    @staticmethod
-    def _to_datetime(value: Any) -> Optional[datetime]:
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, str):
-            try:
-                if date_parser:
-                    return date_parser.parse(value)
-                return datetime.fromisoformat(value)
-            except Exception:
-                return None
-        return None
     
     async def generate_plans(
         self, 
@@ -190,8 +185,7 @@ class PlanGenerator:
         """生成多个旅行方案"""
         try:
             # logger.warning(f"preferences={preferences}")
-            preferences = self._normalize_preferences(preferences)
-            # logger.warning(f"_normalize_preferences(preferences)={preferences}")
+            preferences = self.data_processor.normalize_preferences(preferences)
             logger.info("开始生成旅行方案")
 
             destination_scope = await self._detect_destination_scope(plan)
@@ -265,33 +259,6 @@ class PlanGenerator:
             logger.error(f"生成旅行方案失败: {e}")
             return []
 
-    def _normalize_preferences(self, preferences: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        """确保偏好字段存在并格式正确"""
-        normalized = dict(preferences or {})
-
-        def _set_default_list(key: str):
-            value = normalized.get(key)
-            if value is None:
-                normalized[key] = []
-            elif not isinstance(value, list):
-                normalized[key] = [value]
-
-        def _set_default_int(key: str, default: int = 1):
-            value = normalized.get(key)
-            if value is None:
-                normalized[key] = default
-                return
-            try:
-                normalized[key] = int(value)
-            except (TypeError, ValueError):
-                normalized[key] = default
-
-        _set_default_int("travelers", 1)
-        _set_default_list("ageGroups")
-        _set_default_list("foodPreferences")
-        _set_default_list("dietaryRestrictions")
-
-        return normalized
 
     async def _detect_destination_scope(self, plan: Any) -> str:
         """通过规则+LLM判断目的地是国内还是国外"""
@@ -300,7 +267,7 @@ class PlanGenerator:
         if key and key in self._destination_scope_cache:
             return self._destination_scope_cache[key]
 
-        scope = self._infer_scope_from_metadata(plan, destination)
+        scope = self.data_processor.infer_scope_from_metadata(plan, destination)
         if scope is None:
             scope = await self._ask_llm_destination_scope(destination)
         if scope is None:
@@ -309,27 +276,6 @@ class PlanGenerator:
         if key:
             self._destination_scope_cache[key] = scope
         return scope
-
-    def _infer_scope_from_metadata(self, plan: Any, destination: str) -> Optional[str]:
-        """优先依据显式国家字段和关键词判断"""
-        country = getattr(plan, "country", None)
-        if country:
-            normalized_country = str(country).strip().lower()
-            if normalized_country in {"china", "cn", "prc", "中华人民共和国", "中国"}:
-                return "domestic"
-            return "international"
-
-        text_lower = destination.lower()
-        if any(keyword in destination for keyword in DOMESTIC_KEYWORDS_CN):
-            return "domestic"
-        if any(keyword in text_lower for keyword in DOMESTIC_KEYWORDS_EN):
-            return "domestic"
-
-        if destination and all(ord(ch) < 128 for ch in destination) and not any(
-            keyword in text_lower for keyword in DOMESTIC_KEYWORDS_EN
-        ):
-            return "international"
-        return None
 
     async def _ask_llm_destination_scope(self, destination: str) -> Optional[str]:
         """使用LLM辅助判定目的地范围"""
@@ -496,7 +442,7 @@ class PlanGenerator:
             max_tokens=max_tokens,
             temperature=temperature,
         )
-        cleaned_response = self._clean_llm_response(response)
+        cleaned_response = self.data_processor.clean_llm_response(response)
         try:
             return json.loads(cleaned_response)
         except json.JSONDecodeError:
@@ -756,7 +702,7 @@ class PlanGenerator:
             logger.debug(traceback.format_exc())
 
     def _update_segment_context(self, context: PlanSegmentContext, plan_data: Dict[str, Any]) -> None:
-        spent = self._coerce_number(plan_data.get("total_cost", {}).get("total", 0))
+        spent = self.budget_calculator.coerce_number(plan_data.get("total_cost", {}).get("total", 0))
         if context.remaining_budget is not None:
             context.remaining_budget = max(0.0, context.remaining_budget - spent)
         segment_days = len(plan_data.get("daily_itineraries", []))
@@ -793,7 +739,7 @@ class PlanGenerator:
     def _split_plan_into_segments(self, plan: Any) -> List[Dict[str, Any]]:
         segments: List[Dict[str, Any]] = []
         total_days = max(int(getattr(plan, "duration_days", 0)), 0)
-        start_date = self._to_datetime(getattr(plan, "start_date", None))
+        start_date = self.data_processor.to_datetime(getattr(plan, "start_date", None))
         if total_days <= self.max_segment_days:
             logger.debug("计划天数未超过阈值，无需分段")
             return segments
@@ -819,59 +765,6 @@ class PlanGenerator:
         logger.info(f"根据 {total_days} 天拆分成 {len(segments)} 段")
         return segments
 
-    def _build_segment_plan(
-        self,
-        plan: Any,
-        segment: Dict[str, Any],
-        preferences: Optional[Dict[str, Any]],
-        segment_budget: Optional[float],
-    ) -> Any:
-        base_attrs = {
-            "id": getattr(plan, "id", None),
-            "title": getattr(plan, "title", None),
-            "description": getattr(plan, "description", None),
-            "departure": getattr(plan, "departure", None),
-            "destination": getattr(plan, "destination", None),
-            "transportation": getattr(plan, "transportation", None),
-            "requirements": getattr(plan, "requirements", None),
-            "num_people": getattr(plan, "num_people", None)
-            or (preferences or {}).get("travelers")
-            or getattr(plan, "travelers", None),
-            "age_group": getattr(plan, "age_group", None),
-            "travelers": getattr(plan, "travelers", None)
-            or (preferences or {}).get("travelers"),
-            "user_id": getattr(plan, "user_id", None),
-            "status": getattr(plan, "status", None),
-            "score": getattr(plan, "score", None),
-            "is_public": getattr(plan, "is_public", None),
-            "public_at": getattr(plan, "public_at", None),
-        }
-        base_attrs.update(
-            {
-                "duration_days": segment["days"],
-                "start_date": segment["start_date"],
-                "end_date": segment["end_date"],
-                "budget": segment_budget,
-            }
-        )
-        return SimpleNamespace(**base_attrs)
-
-    def _clone_plan(self, plan: Dict[str, Any]) -> Dict[str, Any]:
-        return copy.deepcopy(plan)
-
-    def _merge_total_cost(self, base: Dict[str, Any], segment: Dict[str, Any]) -> None:
-        base_cost = base.get("total_cost")
-        seg_cost = segment.get("total_cost")
-        if not isinstance(seg_cost, dict):
-            return
-        if not isinstance(base_cost, dict):
-            base_cost = {}
-        for key, value in seg_cost.items():
-            if isinstance(value, (int, float)):
-                base_cost[key] = base_cost.get(key, 0) + value
-            else:
-                base_cost[key] = value
-        base["total_cost"] = base_cost
 
     def _append_segment_plan(self, base: Dict[str, Any], segment: Dict[str, Any]) -> Dict[str, Any]:
         base.setdefault("daily_itineraries", [])
@@ -880,30 +773,13 @@ class PlanGenerator:
             if segment.get(key):
                 base.setdefault(key, [])
                 base[key].extend(segment.get(key, []))
-        self._merge_total_cost(base, segment)
+        self.data_processor.merge_total_cost(base, segment)
         if segment.get("summary"):
             base["summary"] = (
                 base.get("summary", "") + f"\n{segment.get('summary')}"
             ).strip()
         return base
 
-    def _merge_segment_plans(
-        self, existing: List[Dict[str, Any]], segment_plans: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        if not existing:
-            return [self._clone_plan(p) for p in segment_plans]
-        max_len = max(len(existing), len(segment_plans))
-        merged: List[Dict[str, Any]] = []
-        for idx in range(max_len):
-            base_plan = self._clone_plan(existing[idx]) if idx < len(existing) else None
-            seg_plan = segment_plans[idx] if idx < len(segment_plans) else None
-            if base_plan and seg_plan:
-                merged.append(self._append_segment_plan(base_plan, seg_plan))
-            elif base_plan:
-                merged.append(base_plan)
-            elif seg_plan:
-                merged.append(self._clone_plan(seg_plan))
-        return merged
 
     async def _generate_segmented_plans(
         self,
@@ -932,7 +808,7 @@ class PlanGenerator:
             for idx, plan_type in enumerate(plan_types):
                 context = contexts[idx]
                 segment_budget = self._compute_segment_budget(context, segment["days"])
-                segment_plan = self._build_segment_plan(plan, segment, preferences, segment_budget)
+                segment_plan = self.data_processor.build_segment_plan(plan, segment, preferences, segment_budget)
                 filtered_data = self._filter_processed_data_for_context(processed_data, context)
 
                 plan_variant = await self._generate_single_plan(
@@ -1292,20 +1168,20 @@ class PlanGenerator:
 【参考数据 - 其他可用信息】：
 
 航班信息：
-{self._format_data_for_llm(processed_data.get('flights', []), 'flight')}
+{self.data_processor.format_data_for_llm(processed_data.get('flights', []), 'flight')}
 
 酒店信息：
-{self._format_data_for_llm(processed_data.get('hotels', []), 'hotel')}
+{self.data_processor.format_data_for_llm(processed_data.get('hotels', []), 'hotel')}
 
 景点定位数据（仅供参考，重点关注{activity_pref}相关）：
 注意：以下景点数据来自地图定位服务，由于定位精度限制，这些数据只是大概的参考，并不能代表一座城市所有的景点。请优先使用小红书数据中的景点信息。
-{self._format_data_for_llm(self._filter_attractions_by_preference(processed_data.get('attractions', []), activity_pref), 'attraction')}
+{self.data_processor.format_data_for_llm(self._filter_attractions_by_preference(processed_data.get('attractions', []), activity_pref), 'attraction')}
 
 餐厅信息：
-{self._format_data_for_llm(processed_data.get('restaurants', []), 'restaurant')}
+{self.data_processor.format_data_for_llm(processed_data.get('restaurants', []), 'restaurant')}
 
 交通信息：
-{self._format_data_for_llm(processed_data.get('transportation', []), 'transportation')}
+{self.data_processor.format_data_for_llm(processed_data.get('transportation', []), 'transportation')}
 
 天气信息：
 {processed_data.get('weather', {})}
@@ -1700,145 +1576,7 @@ class PlanGenerator:
         except Exception as e:
             logger.warning(f"交通数据校准失败: {e}")
     
-    def _clean_llm_response(self, response: str) -> str:
-        """清理LLM响应，移除markdown标记等"""
-        import re
-        
-        # 移除markdown代码块标记
-        cleaned = re.sub(r'```json\s*', '', response)
-        cleaned = re.sub(r'```\s*$', '', cleaned)
-        cleaned = re.sub(r'```\s*', '', cleaned)  # 移除单独的```
-        
-        # 移除前后的空白字符
-        cleaned = cleaned.strip()
-        
-        return cleaned
     
-    def _extract_json_from_response(self, response: str) -> Optional[str]:
-        """从响应中提取JSON"""
-        import re
-        
-        # 首先尝试清理markdown格式
-        cleaned = self._clean_llm_response(response)
-        
-        # 尝试匹配JSON对象（包含plans字段）
-        json_pattern = r'\{[^{}]*"plans"[^{}]*\{.*?\}.*?\}'
-        match = re.search(json_pattern, cleaned, re.DOTALL)
-        
-        if match:
-            return match.group(0)
-        
-        # 尝试匹配简单的JSON对象
-        simple_json_pattern = r'\{.*?\}'
-        match = re.search(simple_json_pattern, cleaned, re.DOTALL)
-        
-        if match:
-            return match.group(0)
-        
-        # 尝试匹配JSON数组
-        array_pattern = r'\[.*?\]'
-        match = re.search(array_pattern, cleaned, re.DOTALL)
-        
-        if match:
-            return match.group(0)
-        
-        return None
-    
-    def _format_data_for_llm(self, data: List[Dict[str, Any]], data_type: str) -> str:
-        """格式化数据供LLM使用"""
-        if not data:
-            return "暂无数据"
-        
-        formatted_items = []
-        for i, item in enumerate(data[:10]):  # 限制数量，避免prompt过长
-            if data_type == 'flight':
-                # 格式化时间显示
-                departure_time = item.get('departure_time', 'N/A')
-                arrival_time = item.get('arrival_time', 'N/A')
-                if departure_time != 'N/A' and 'T' in departure_time:
-                    departure_time = departure_time.split('T')[1][:5]  # 只显示时间部分 HH:MM
-                if arrival_time != 'N/A' and 'T' in arrival_time:
-                    arrival_time = arrival_time.split('T')[1][:5]  # 只显示时间部分 HH:MM
-                
-                # 格式化价格显示
-                price_display = "N/A"
-                if item.get('price_cny'):
-                    price_display = f"{item.get('price_cny')}元"
-                elif item.get('price'):
-                    currency = item.get('currency', 'CNY')
-                    price_display = f"{item.get('price')}{currency}"
-                
-                # 中转信息
-                stops = item.get('stops', 0)
-                stops_text = "直飞" if stops == 0 else f"{stops}次中转"
-                
-                formatted_items.append(f"""
-  {i+1}. 航班号: {item.get('flight_number', 'N/A')}
-     航空公司: {item.get('airline_name', item.get('airline', 'N/A'))}
-     出发时间: {departure_time}
-     到达时间: {arrival_time}
-     飞行时长: {item.get('duration', 'N/A')}
-     价格: {price_display}
-     舱位等级: {item.get('cabin_class', 'N/A')}
-     中转情况: {stops_text}
-     出发机场: {item.get('origin', 'N/A')}
-     到达机场: {item.get('destination', 'N/A')}
-     行李额度: {item.get('baggage_allowance', 'N/A')}""")
-            
-            elif data_type == 'hotel':
-                formatted_items.append(f"""
-  {i+1}. 酒店名称: {item.get('name', 'N/A')}
-     地址: {item.get('address', 'N/A')}
-     每晚价格: {item.get('price_per_night', 'N/A')}元
-     评分: {item.get('rating', 'N/A')}
-     设施: {', '.join(item.get('amenities', []))}
-     星级: {item.get('star_rating', 'N/A')}""")
-            
-            elif data_type == 'attraction':
-                # 增强景点信息格式化，包含百度地图的详细信息
-                formatted_items.append(f"""
-  {i+1}. 景点名称: {item.get('name', 'N/A')}
-     类型: {item.get('category', 'N/A')}
-     描述: {item.get('description', 'N/A')}
-     门票价格: {item.get('price', 'N/A')}元
-     评分: {item.get('rating', 'N/A')}
-     地址: {item.get('address', 'N/A')}
-     开放时间: {item.get('opening_hours', 'N/A')}
-     建议游览时间: {item.get('visit_duration', 'N/A')}
-     特色标签: {', '.join(item.get('tags', []))}
-     联系方式: {item.get('phone', 'N/A')}
-     官方网站: {item.get('website', 'N/A')}
-     交通便利性: {item.get('accessibility', 'N/A')}
-     数据来源: {item.get('source', 'N/A')}""")
-            
-            elif data_type == 'restaurant':
-                formatted_items.append(f"""
-  {i+1}. 餐厅名称: {item.get('name', 'N/A')}
-     菜系: {item.get('cuisine', 'N/A')}
-     参考消费: {item.get('price_range', '价格未知')}
-     评分: {item.get('rating', 'N/A')}
-     地址: {item.get('address', 'N/A')}
-     特色菜: {', '.join(item.get('specialties', []))}""")
-            
-            elif data_type == 'transportation':
-                # 增强交通信息格式化，包含百度地图的详细信息
-                formatted_items.append(f"""
-  {i+1}. 交通方式: {item.get('type', 'N/A')}
-     名称: {item.get('name', 'N/A')}
-     描述: {item.get('description', 'N/A')}
-     距离: {item.get('distance', 'N/A')}公里
-     耗时: {item.get('duration', 'N/A')}分钟
-     费用: {item.get('price', item.get('cost', 'N/A'))}元
-     货币: {item.get('currency', 'CNY')}
-     运营时间: {item.get('operating_hours', 'N/A')}
-     发车频率: {item.get('frequency', 'N/A')}
-     覆盖区域: {', '.join(item.get('coverage', []))}
-     特色功能: {', '.join(item.get('features', []))}
-     路线: {item.get('route', 'N/A')}
-     数据来源: {item.get('source', 'N/A')}
-     路况信息: {self._format_traffic_info(item.get('traffic_conditions', {}))}""")
-        
-        return '\n'.join(formatted_items) if formatted_items else "暂无数据"
     
     def _format_xiaohongshu_data_for_prompt(self, notes_data: List[Dict[str, Any]], destination: str) -> str:
         """
@@ -1862,85 +1600,6 @@ class PlanGenerator:
             logger.error(f"格式化小红书数据失败: {e}")
             return f"小红书数据格式化失败，但收集到 {len(notes_data)} 条相关笔记"
     
-    def _format_traffic_info(self, traffic_conditions: Dict[str, Any]) -> str:
-        """格式化路况信息"""
-        if not traffic_conditions:
-            return "暂无路况信息"
-        
-        info_parts = []
-        
-        # 拥堵程度
-        congestion_level = traffic_conditions.get('congestion_level', '未知')
-        if congestion_level != '未知':
-            info_parts.append(f"拥堵程度: {congestion_level}")
-        
-        # 道路状况
-        road_conditions = traffic_conditions.get('road_conditions', [])
-        if road_conditions:
-            info_parts.append(f"道路状况: {', '.join(road_conditions)}")
-        
-        # 实时信息
-        real_time = traffic_conditions.get('real_time', False)
-        if real_time:
-            info_parts.append("实时路况: 是")
-        
-        return ', '.join(info_parts) if info_parts else "暂无路况信息"
-    
-    def _format_weather_info(self, weather_data: Dict[str, Any]) -> Dict[str, Any]:
-        """格式化天气信息"""
-        if not weather_data:
-            return {
-                "raw_data": {},
-                "travel_recommendations": ["暂无天气数据，建议出行前查看最新天气预报"]
-            }
-        
-        # 生成基于天气的旅游建议
-        recommendations = []
-        
-        # 检查温度
-        temp = weather_data.get('temperature')
-        if temp:
-            if isinstance(temp, (int, float)):
-                if temp < 10:
-                    recommendations.append("气温较低，建议穿着保暖衣物，携带外套")
-                elif temp > 30:
-                    recommendations.append("气温较高，建议穿着轻薄透气衣物，注意防晒")
-                else:
-                    recommendations.append("气温适宜，建议穿着舒适的休闲服装")
-        
-        # 检查天气状况
-        weather_desc = weather_data.get('weather', '').lower()
-        if '雨' in weather_desc or 'rain' in weather_desc:
-            recommendations.append("有降雨，建议携带雨具，选择室内景点或有遮蔽的活动")
-        elif '雪' in weather_desc or 'snow' in weather_desc:
-            recommendations.append("有降雪，注意保暖防滑，选择适合雪天的活动")
-        elif '晴' in weather_desc or 'sunny' in weather_desc:
-            recommendations.append("天气晴朗，适合户外活动和观光，注意防晒")
-        elif '云' in weather_desc or 'cloud' in weather_desc:
-            recommendations.append("多云天气，适合各种户外活动，光线柔和适合拍照")
-        
-        # 检查湿度
-        humidity = weather_data.get('humidity')
-        if humidity and isinstance(humidity, (int, float)):
-            if humidity > 80:
-                recommendations.append("湿度较高，建议选择透气性好的衣物")
-            elif humidity < 30:
-                recommendations.append("湿度较低，注意补水保湿")
-        
-        # 检查风力
-        wind_speed = weather_data.get('wind_speed')
-        if wind_speed and isinstance(wind_speed, (int, float)):
-            if wind_speed > 20:
-                recommendations.append("风力较大，户外活动时注意安全，避免高空项目")
-        
-        # 如果没有生成任何建议，添加默认建议
-        if not recommendations:
-            recommendations.append("建议根据当地天气情况合理安排行程")
-        
-        return {
-            "raw_data": weather_data,
-            "travel_recommendations": recommendations
-        }
     
     async def _generate_single_plan(
         self,
@@ -1983,12 +1642,12 @@ class PlanGenerator:
             }
             
             # 计算总预算
-            total_cost = self._calculate_total_cost(
+            total_cost = self.budget_calculator.calculate_total_cost(
                 accommodation, daily_itineraries, plan.duration_days
             )
             
             # 获取天气信息
-            weather_info = self._format_weather_info(processed_data.get("weather", {}))
+            weather_info = self.data_processor.format_weather_info(processed_data.get("weather", {}))
             
             # 获取目的地坐标信息
             destination_info = await self._extract_destination_info(processed_data, plan.destination)
@@ -2163,7 +1822,7 @@ class PlanGenerator:
 
 【参考数据 - 景点定位数据（仅供参考）】：
 注意：以下景点数据来自地图定位服务，由于定位精度限制，这些数据只是大概的参考，并不能代表一座城市所有的景点。请优先使用小红书数据中的景点信息。
-{self._format_data_for_llm(processed_data.get('attractions', []), 'attraction')}
+{self.data_processor.format_data_for_llm(processed_data.get('attractions', []), 'attraction')}
 
 重要提示：
 1. 计划生成必须以小红书用户的真实体验和建议为主，优先采用小红书中提到的景点、餐厅和活动；
@@ -2181,7 +1840,7 @@ class PlanGenerator:
                 temperature=0.7
             )
 
-            cleaned_response = self._clean_llm_response(response)
+            cleaned_response = self.data_processor.clean_llm_response(response)
             try:
                 result = json.loads(cleaned_response)
             except json.JSONDecodeError:
@@ -2530,7 +2189,7 @@ class PlanGenerator:
         try:
             total_days = max(int(getattr(plan, "duration_days", 0) or 1), 1)
             # 住宿使用固定支出预算，按天均分
-            fixed_budget = self._get_fixed_budget(plan)
+            fixed_budget = self.budget_calculator.get_fixed_budget(plan)
             logger.warning(f"计算后的固定住宿支出预算: {fixed_budget}")
             per_day_accommodation_budget = (
                 fixed_budget / total_days if fixed_budget and total_days > 0 else None
@@ -2569,10 +2228,10 @@ class PlanGenerator:
 - 特殊要求：{plan.requirements or '无'}
 
 可用航班数据：
-{self._format_data_for_llm(flights_data, 'flight')}
+{self.data_processor.format_data_for_llm(flights_data, 'flight')}
 
 可用酒店数据：
-{self._format_data_for_llm(hotels_data, 'hotel')}
+{self.data_processor.format_data_for_llm(hotels_data, 'hotel')}
 
 小红书住宿体验：
 {notes_str}
@@ -2614,7 +2273,7 @@ class PlanGenerator:
                 return []
 
             total_hotel_cost = sum(
-                self._safe_number(entry.get("daily_cost", 0)) for entry in daily_entries if isinstance(entry, dict)
+                self.budget_calculator.safe_number(entry.get("daily_cost", 0)) for entry in daily_entries if isinstance(entry, dict)
             )
             first_flight = next(
                 (entry.get("flight") for entry in daily_entries if entry.get("flight")), {}
@@ -2629,9 +2288,9 @@ class PlanGenerator:
                 "hotel": first_hotel,
                 "daily_accommodation": daily_entries,
                 "total_accommodation_cost": {
-                    "flight": self._safe_number(first_flight.get("price", 0)),
+                    "flight": self.budget_calculator.safe_number(first_flight.get("price", 0)),
                     "hotel": total_hotel_cost,
-                    "total": self._safe_number(first_flight.get("price", 0)) + total_hotel_cost,
+                    "total": self.budget_calculator.safe_number(first_flight.get("price", 0)) + total_hotel_cost,
                 },
                 "accommodation_highlights": [
                     highlight
@@ -2659,7 +2318,7 @@ class PlanGenerator:
         """生成餐饮方案（按天）"""
         try:
             total_days = max(int(getattr(plan, "duration_days", 0) or 1), 1)
-            per_day_budget = self._get_per_day_budget(plan)
+            per_day_budget = self.budget_calculator.get_per_day_budget(plan)
             logger.warning(f"计算后的每日餐饮预算: {per_day_budget}")
             notes_str = self._format_xiaohongshu_data_for_prompt(
                 raw_data.get("xiaohongshu_notes", []) if raw_data else [], plan.destination
@@ -2688,7 +2347,7 @@ class PlanGenerator:
 - 饮食禁忌：{', '.join((preferences or {}).get('dietaryRestrictions', [])) if (preferences or {}).get('dietaryRestrictions') else '无'}
 
 可用餐厅数据：
-{self._format_data_for_llm(restaurants_data, 'restaurant')}
+{self.data_processor.format_data_for_llm(restaurants_data, 'restaurant')}
 
 小红书真实用户美食分享：
 {notes_str}
@@ -2758,7 +2417,7 @@ class PlanGenerator:
             )
 
             # 交通模块也使用每日可变预算，但预算限制较宽松（因为交通费用通常较小）
-            per_day_budget = self._get_per_day_budget(plan)
+            per_day_budget = self.budget_calculator.get_per_day_budget(plan)
             logger.warning(f"计算后的每日交通预算: {per_day_budget}")
             
             def build_prompts(day: int, date_str: str, daily_budget: Optional[float]):
@@ -2795,7 +2454,7 @@ class PlanGenerator:
 {intl_hint}
 
 可用交通数据：
-{self._format_data_for_llm(transportation_data, 'transportation')}
+{self.data_processor.format_data_for_llm(transportation_data, 'transportation')}
 
 小红书真实交通攻略：
 {notes_str}
@@ -2876,7 +2535,7 @@ class PlanGenerator:
         """按天生成景点游玩方案"""
         try:
             total_days = max(int(getattr(plan, "duration_days", 0) or len(attractions_data) or 1), 1)
-            per_day_budget = self._get_per_day_budget(plan)
+            per_day_budget = self.budget_calculator.get_per_day_budget(plan)
             logger.warning(f"计算后的每日景点预算: {per_day_budget}")
             notes_str = self._format_xiaohongshu_data_for_prompt(
                 raw_data.get("xiaohongshu_notes", []) if raw_data else [], plan.destination
@@ -2918,7 +2577,7 @@ class PlanGenerator:
 
 【参考数据 - 景点定位数据（仅供参考）】：
 注意：以下景点数据来自地图定位服务，由于定位精度限制，这些数据只是大概的参考，并不能代表一座城市所有的景点。请优先使用小红书数据中的景点信息。
-{self._format_data_for_llm(attractions_data, 'attraction')}
+{self.data_processor.format_data_for_llm(attractions_data, 'attraction')}
 
 {intl_hint}
 
@@ -3042,7 +2701,7 @@ class PlanGenerator:
                                 daily_plan["attractions"] = normalized_attractions
                             else:
                                 daily_plan["attractions"] = []
-                            attraction_cost = self._coerce_number(
+                            attraction_cost = self.budget_calculator.coerce_number(
                                 day_attractions.get("estimated_cost", 0)
                             )
                             daily_plan["estimated_cost"] += attraction_cost
@@ -3052,12 +2711,12 @@ class PlanGenerator:
                         day_meals = self._get_day_meals(dining_plans, day_num)
                         if day_meals:
                             daily_plan["meals"] = day_meals.get("meals", [])
-                            meal_cost = self._coerce_number(day_meals.get("daily_food_cost", 0))
+                            meal_cost = self.budget_calculator.coerce_number(day_meals.get("daily_food_cost", 0))
                             daily_plan["estimated_cost"] += meal_cost
 
                             # 将餐饮安排添加到schedule中
                             for meal in daily_plan["meals"]:
-                                meal_cost = self._coerce_number(meal.get("estimated_cost", 0))
+                                meal_cost = self.budget_calculator.coerce_number(meal.get("estimated_cost", 0))
                                 
                                 # 安全构建description
                                 cuisine = str(meal.get('cuisine', ''))
@@ -3128,7 +2787,7 @@ class PlanGenerator:
                     travel_plan["transportation"] = transportation_plans
                     
                     # 计算总费用
-                    travel_plan["total_cost"] = self._calculate_total_cost(
+                    travel_plan["total_cost"] = self.budget_calculator.calculate_total_cost(
                         accommodation, daily_itineraries, plan.duration_days
                     )
                     
@@ -3157,91 +2816,6 @@ class PlanGenerator:
             logger.error(f"详细错误信息: {traceback.format_exc()}")
             return []
 
-    def _get_per_day_budget(self, plan: Any) -> Optional[float]:
-        """
-        计算每日可变预算（用于餐饮、景点、交通）
-        
-        将总预算分为两部分：
-        1. 固定支出（航班+酒店）：占总预算的30-35%
-        2. 每日可变支出（餐饮+景点+交通）：占总预算的65-70%，按天均分
-        
-        这样可以避免每个模块都使用总预算/天数，导致预算被重复使用的问题。
-        """
-        total_budget = getattr(plan, "budget", None)
-        total_days = getattr(plan, "duration_days", None)
-        if not total_budget or not total_days:
-            return None
-        try:
-            total_budget = float(total_budget)
-            total_days = int(total_days)
-            if total_days <= 0:
-                return None
-            
-            # 固定支出（航班+酒店）占30-35%，每日可变支出占65-70%
-            # 根据预算规模调整比例：预算越大，固定支出比例可以稍高
-            if total_budget >= 10000:
-                fixed_ratio = 0.35  # 高预算时，固定支出占35%
-            elif total_budget >= 5000:
-                fixed_ratio = 0.33  # 中等预算时，固定支出占33%
-            else:
-                fixed_ratio = 0.30  # 低预算时，固定支出占30%
-            
-            variable_budget = total_budget * (1 - fixed_ratio)
-            per_day_budget = variable_budget / total_days
-            
-            logger.debug(
-                f"预算分配：总预算={total_budget:.0f}元，"
-                f"固定支出（航班+酒店）={total_budget * fixed_ratio:.0f}元，"
-                f"每日可变预算={per_day_budget:.0f}元/天"
-            )
-            
-            return max(per_day_budget, 0)
-        except (TypeError, ValueError):
-            return None
-    
-    def _get_fixed_budget(self, plan: Any) -> Optional[float]:
-        """
-        计算固定支出预算（用于航班+酒店）
-        
-        固定支出占总预算的30-35%，根据总预算规模调整比例。
-        """
-        total_budget = getattr(plan, "budget", None)
-        if not total_budget:
-            return None
-        try:
-            total_budget = float(total_budget)
-            
-            # 根据预算规模调整比例
-            if total_budget >= 10000:
-                fixed_ratio = 0.35
-            elif total_budget >= 5000:
-                fixed_ratio = 0.33
-            else:
-                fixed_ratio = 0.30
-            
-            return max(total_budget * fixed_ratio, 0)
-        except (TypeError, ValueError):
-            return None
-
-    @staticmethod
-    def _safe_number(value: Any) -> float:
-        """
-        将带有货币符号/中文单位的字符串安全转为数字，失败返回0
-        """
-        if isinstance(value, (int, float)):
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                return 0.0
-        if isinstance(value, str):
-            import re
-            match = re.search(r"(-?\\d+(?:\\.\\d+)?)", value)
-            if match:
-                try:
-                    return float(match.group(1))
-                except (TypeError, ValueError):
-                    return 0.0
-        return 0.0
 
     def _get_day_attractions(self, attraction_plans: List[Dict[str, Any]], day: int) -> Dict[str, Any]:
         """获取指定天数的景点安排"""
@@ -3399,64 +2973,7 @@ class PlanGenerator:
             return ""
         return "".join(str(name).lower().split())
 
-    def _calculate_total_cost(
-        self, 
-        accommodation: Dict[str, Any], 
-        daily_itineraries: List[Dict[str, Any]], 
-        duration_days: int
-    ) -> Dict[str, Any]:
-        """计算总费用"""
-        cost_summary = accommodation.get("total_accommodation_cost", {}) or {}
-        flight_cost = self._coerce_number(cost_summary.get("flight", 0))
-        hotel_cost = self._coerce_number(cost_summary.get("hotel", 0))
-
-        attractions_cost = 0.0
-        for day in daily_itineraries:
-            attractions_cost += self._coerce_number(day.get("estimated_cost", 0))
-
-        meals_cost = 0.0
-        for day in daily_itineraries:
-            for meal in day.get("meals", []):
-                meals_cost += self._coerce_number(meal.get("estimated_cost", 0))
-
-        transportation_cost = 100 * duration_days  # 估算每日交通费用
-
-        total = flight_cost + hotel_cost + attractions_cost + meals_cost + transportation_cost
-        
-        return {
-            "flight": flight_cost,
-            "hotel": hotel_cost,
-            "attractions": attractions_cost,
-            "meals": meals_cost,
-            "transportation": transportation_cost,
-            "total": total
-        }
-
-    def _coerce_number(self, value: Any, default: float = 0.0) -> float:
-        """Best-effort conversion to float, flattening dict/list containers."""
-        if value is None:
-            return default
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            try:
-                return float(value)
-            except (ValueError, TypeError):
-                return default
-        if isinstance(value, dict):
-            if "total" in value:
-                return self._coerce_number(value.get("total"), default)
-            subtotal = 0.0
-            for sub in value.values():
-                subtotal += self._coerce_number(sub, 0.0)
-            return subtotal if subtotal else default
-        if isinstance(value, (list, tuple)):
-            total = 0.0
-            for item in value:
-                total += self._coerce_number(item, 0.0)
-            return total if total else default
-        return default
-
+    
     def _generate_weather_recommendations(self, weather_data: Dict[str, Any]) -> List[str]:
         """基于天气数据生成旅游建议"""
         recommendations = ["建议根据当地天气情况合理安排行程"]
@@ -3547,7 +3064,7 @@ class PlanGenerator:
                 return "生成方案失败，请稍后重试。"
             
             # 清理响应并限制长度
-            cleaned = self._clean_llm_response(response).strip()
+            cleaned = self.data_processor.clean_llm_response(response).strip()
             
             # 如果超过最大字符数，截断
             if len(cleaned) > max_chars:
@@ -3617,7 +3134,7 @@ class PlanGenerator:
             
             # 尝试解析JSON响应
             try:
-                cleaned_response = self._clean_llm_response(response)
+                cleaned_response = self.data_processor.clean_llm_response(response)
                 try:    
                     result = json.loads(cleaned_response)
                 except json.JSONDecodeError:

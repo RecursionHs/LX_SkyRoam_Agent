@@ -45,7 +45,7 @@ class DataProcessor:
             # 按可信度排序
             processed_data.sort(key=lambda x: x.get("trust_score", 0), reverse=True)
             
-            logger.info(f"处理完成，保留 {len(processed_data)} 条有效数据")
+            logger.debug(f"处理完成，保留 {len(processed_data)} 条有效数据")
             return processed_data
             
         except Exception as e:

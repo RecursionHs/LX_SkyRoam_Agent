@@ -190,11 +190,11 @@ class AgentService:
         # 延迟创建 + 调度任务（保证间隔生效）
         for i, (key, factory) in enumerate(task_specs):
             if i > 0 and interval_seconds > 0:
-                logger.info(f"等待 {interval_seconds}s 后启动下一个任务 ({i+1}/{len(task_specs)})")
+                logger.debug(f"等待 {interval_seconds}s 后启动下一个任务 ({i+1}/{len(task_specs)})")
                 await asyncio.sleep(interval_seconds)
             task = asyncio.create_task(run_with_key(key, factory))
             tasks.append(task)
-            logger.info(f"已启动任务 {i+1}/{len(task_specs)}: {key}")
+            logger.debug(f"已启动任务 {i+1}/{len(task_specs)}: {key}")
 
         # 用于聚合增量结果
         partial_raw: Dict[str, Any] = {}
@@ -219,7 +219,7 @@ class AgentService:
             # 增量保存原始数据预览（覆盖之前的预览，前端轮询可见逐步更新）
             try:
                 await self._save_raw_preview(plan.id, partial_raw, plan)
-                logger.info(f"已增量保存预览，section: {key}，当前可用: {list(partial_raw.keys())}")
+                logger.debug(f"已增量保存预览，section: {key}，当前可用: {list(partial_raw.keys())}")
             except Exception as save_err:
                 logger.warning(f"保存预览失败（{key}）: {save_err}")
 
