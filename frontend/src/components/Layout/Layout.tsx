@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout as AntLayout, Menu, Button, Drawer, Typography, Avatar, Dropdown, Modal, Form, Input, message } from 'antd';
 import { 
   HomeOutlined, 
@@ -6,7 +6,8 @@ import {
   InfoCircleOutlined,
   MenuOutlined,
   UserOutlined,
-  EnvironmentOutlined
+  EnvironmentOutlined,
+  RocketOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import './Layout.css';
@@ -15,6 +16,8 @@ import { getToken, clearToken } from '../../utils/auth';
 import { authFetch } from '../../utils/auth';
 import { buildApiUrl } from '../../config/api';
 import AIAssistant from '../AIAssistant';
+import SystemUpgradeNotice from '../SystemUpgradeNotice/SystemUpgradeNotice';
+import UpgradeManager from '../../utils/upgradeManager';
 
 const { Header, Content, Footer } = AntLayout;
 const { Title } = Typography;
@@ -34,6 +37,30 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [profileForm] = Form.useForm();
   const [pwdForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [upgradeNoticeVisible, setUpgradeNoticeVisible] = useState(false);
+  const [upgradeConfig, setUpgradeConfig] = useState(UpgradeManager.getCurrentConfig());
+
+  // 监听升级配置变化
+  useEffect(() => {
+    const cleanup = UpgradeManager.onConfigChange((config) => {
+      setUpgradeConfig(config);
+    });
+    return cleanup;
+  }, []);
+
+  // 检查是否需要显示系统升级通知
+  useEffect(() => {
+    const checkUpgradeNotice = () => {
+      if (UpgradeManager.shouldShowNotice()) {
+        // 延迟1秒显示，让用户先看到页面
+        const timer = setTimeout(() => {
+          setUpgradeNoticeVisible(true);
+        }, 1000);
+        return () => clearTimeout(timer);
+      }
+    };
+    checkUpgradeNotice();
+  }, []);
 
   // 拉取当前用户信息
   React.useEffect(() => {
@@ -124,11 +151,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
   };
 
+  const handleUpgradeNoticeClose = () => {
+    setUpgradeNoticeVisible(false);
+    UpgradeManager.markNoticeAsSeen();
+  };
+
   const userMenuItems = [
     ...(user?.role === 'admin' ? [
       { key: 'admin_users', label: '用户管理', icon: <UserOutlined />, onClick: () => navigate('/admin/users') },
       { key: 'admin_history', label: '历史记录管理', icon: <HistoryOutlined />, onClick: () => navigate('/admin/history') },
       { key: 'admin_attractions', label: '景点信息管理', icon: <EnvironmentOutlined />, onClick: () => navigate('/admin/attraction-details') },
+      { key: 'admin_upgrade', label: '升级通知控制', icon: <RocketOutlined />, onClick: () => navigate('/admin/upgrade-control') },
       { type: 'divider' as const },
     ] : []),
     { key: 'profile', label: '个人资料', onClick: () => setProfileVisible(true) },
@@ -171,8 +204,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
            />
 
           <div className="header-actions">
-            <Button type="primary" className="btn-primary" onClick={() => handleMenuClick('/plan')}>
+            <Button 
+              type="primary" 
+              className="btn-primary" 
+              onClick={() => handleMenuClick('/plan')}
+            >
               创建计划
+            </Button>
+            <Button
+              type="text"
+              icon={<RocketOutlined />}
+              onClick={() => setUpgradeNoticeVisible(true)}
+              className="upgrade-notice-btn"
+              title="系统升级通知"
+            >
             </Button>
             {token ? (
               <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
@@ -268,6 +313,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* AI助手 */}
       <AIAssistant />
+
+      {/* 系统升级通知 */}
+      <SystemUpgradeNotice 
+        visible={upgradeNoticeVisible} 
+        onClose={handleUpgradeNoticeClose}
+        config={upgradeConfig}
+      />
 
     </AntLayout>
   );

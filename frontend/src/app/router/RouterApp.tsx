@@ -14,6 +14,7 @@ import AttractionDetailsAdminPage from '../../pages/Admin/AttractionDetailsAdmin
 import DestinationsPage from '../../pages/DestinationsPage/DestinationsPage';
 import PlansLibraryPage from '../../pages/PlansLibraryPage/PlansLibraryPage';
 import PlanEditPage from '../../pages/PlanEditPage/PlanEditPage';
+import UpgradeControlPage from '../../pages/Admin/UpgradeControlPage/UpgradeControlPage';
 
 const RouterApp: React.FC = () => {
   return (
@@ -31,6 +32,7 @@ const RouterApp: React.FC = () => {
       <Route path="/admin/users" element={<RequireAdmin><UsersAdminPage /></RequireAdmin>} />
       <Route path="/admin/history" element={<RequireAdmin><HistoryAdminPage /></RequireAdmin>} />
       <Route path="/admin/attraction-details" element={<RequireAdmin><AttractionDetailsAdminPage /></RequireAdmin>} />
+      <Route path="/admin/upgrade-control" element={<RequireAdmin><UpgradeControlPage /></RequireAdmin>} />
       <Route path="/plan/:id/edit" element={<RequireAdmin><PlanEditPage /></RequireAdmin>} />
     </Routes>
   );

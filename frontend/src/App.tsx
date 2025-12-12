@@ -11,6 +11,12 @@ import 'dayjs/locale/zh-cn';
 import Layout from './components/Layout/Layout';
 import RouterApp from './app/router/RouterApp';
 
+// 开发环境下导入升级通知测试和重置工具
+if (process.env.NODE_ENV === 'development') {
+  import('./utils/upgradeNoticeReset');
+  import('./utils/testUpgradeNotice');
+}
+
 const App: React.FC = () => {
   dayjs.locale('zh-cn');
   return (
